@@ -187,6 +187,29 @@
 /**
  * @swagger
  * /rates/{service}:
+ *   get:
+ *     tags: [Rates]
+ *     summary: Get rate for a service
+ *     parameters:
+ *       - in: path
+ *         name: service
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [CALL, SMS, DATA]
+ *     responses:
+ *       200:
+ *         description: Rate retrieved
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 service:
+ *                   type: string
+ *                   enum: [CALL, SMS, DATA]
+ *                 rate:
+ *                   type: number
  *   put:
  *     tags: [Rates]
  *     summary: Update rate for a service (admin only)
@@ -221,4 +244,10 @@
  *       type: http
  *       scheme: bearer
  *       bearerFormat: JWT
+ */
+
+/**
+ * @swagger
+ * security:
+ *   - bearerAuth: []
  */
