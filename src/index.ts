@@ -6,6 +6,8 @@ import userRoutes from './routes/userRoutes';
 import usageRoutes from './routes/usageRoutes';
 import billingRoutes from './routes/billingRoutes';
 import rateRoutes from './routes/rateRoutes';
+import swaggerUi from 'swagger-ui-express';
+import swaggerJsdoc from 'swagger-jsdoc';
 
 
 dotenv.config();
@@ -17,6 +19,29 @@ app.use('/users', userRoutes);
 app.use('/usage', usageRoutes);
 app.use('/billing', billingRoutes);
 app.use('/rates', rateRoutes);
+
+const swaggerSpec = swaggerJsdoc({
+  definition: {
+    openapi: '3.0.0',
+    info: {
+      title: 'Telecom Billing System API',
+      version: '1.0.0',
+    },
+    components: {
+      securitySchemes: {
+        bearerAuth: {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+        },
+      },
+    },
+    security: [{ bearerAuth: [] }],
+  },
+  apis: ['./src/routes/*.ts', './src/swagger.ts'],
+});
+
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.get('/', (req, res) => {
   res.send('Telecom Billing System API');
