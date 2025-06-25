@@ -10,3 +10,8 @@ export const updateRate = async (req: Request, res: Response) => {
   );
   res.json({ message: 'Rate updated' });
 };
+
+export const getRates = async (req: Request, res: Response) => {
+  const [rows]: any = await pool.query("SELECT service, rate FROM service_rates");
+  res.json(rows);
+};
