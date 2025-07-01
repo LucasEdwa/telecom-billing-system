@@ -1,135 +1,112 @@
-1. Project Description
-A backend system that calculates and manages telecom bills based on user activity (e.g., calls, SMS, data usage). The system can handle:
+# Telecom Billing System
 
-User account creation and authentication.
+## 1. Project Description
 
-Call/SMS/data usage logging.
+A backend system to calculate and manage telecom bills based on user activity (calls, SMS, data usage).
 
-Bill generation based on usage and pre-defined rates.
+**Key Capabilities:**
+- User account creation and authentication
+- Logging of calls, SMS, and data usage
+- Bill generation based on usage and configurable rates
+- Role-based access for administrators (e.g., update rates, view summaries)
 
-Role-based access for administrators to update rates or check user summaries.
+---
 
-2. Tech Stack
-Backend Framework: Node.js with Express.js (or NestJS for advanced structure).
+## 2. Tech Stack
 
-Database: PostgreSQL (for relational data like users and billing).
+- **Backend:** Node.js (Express.js or NestJS)
+- **Database:** PostgreSQL (relational data)
+- **Authentication:** JSON Web Tokens (JWT)
+- **Optional Payments:** Stripe or PayPal
 
-Authentication: JSON Web Tokens (JWT).
+---
 
-Payment Gateway Integration (optional): Stripe or PayPal for processing payments.
+## 3. Core Features
 
-3. Core Features
-a) User Management
-Endpoints:
+### a) User Management
+- **Endpoints:**
+  - `POST /users/signup` — Register user
+  - `POST /users/login` — Authenticate user, return JWT
+  - `GET /users/:id` — Get user profile (auth required)
+- **Fields:** Name, email, hashed password, account type (admin/user)
 
-Sign Up: POST /users/signup
+### b) Usage Logging
+- **Endpoints:**
+  - `POST /usage/calls` — Log call duration
+  - `POST /usage/sms` — Log SMS count
+  - `POST /usage/data` — Log data usage
+- **Schema Example:**
+  ```sql
+  CREATE TABLE usage_logs (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id),
+    type ENUM('CALL', 'SMS', 'DATA'),
+    quantity DECIMAL,
+    timestamp TIMESTAMP DEFAULT NOW()
+  );
+  ```
 
-Login: POST /users/login
+### c) Billing System
+- **Rates:** Call: $0.05/min, SMS: $0.01/msg, Data: $0.10/MB
+- **Endpoint:** `GET /billing/:userId` — Generate bill for user (auth required)
+- **Logic:** Aggregate usage per billing cycle and apply rates
 
-Fetch User Profile: GET /users/:id
+### d) Role-Based Access
+- Admins can update rates and fetch all user summaries
+- Middleware verifies user roles
 
-Fields:
+### e) Optional Features
+- Notifications for pending bills (email/SMS)
+- Real-time usage tracking (WebSocket)
 
-Name, email, password (hashed), account type (admin/user).
+---
 
-b) Usage Logging
-Log call durations, SMS counts, and data usage.
+## 4. API Example
 
-Endpoints:
-
-Log Call: POST /usage/calls
-
-Log SMS: POST /usage/sms
-
-Log Data: POST /usage/data
-
-Database Schema:
-
-sql
-Kopiera
-Redigera
-CREATE TABLE usage_logs (
-  id SERIAL PRIMARY KEY,
-  user_id INT REFERENCES users(id),
-  type ENUM('CALL', 'SMS', 'DATA'),
-  quantity DECIMAL,
-  timestamp TIMESTAMP DEFAULT NOW()
-);
-c) Billing System
-Generate bills based on usage and rates:
-
-Call: $0.05/minute
-
-SMS: $0.01/message
-
-Data: $0.10/MB
-
-Endpoints:
-
-Generate Bill: GET /billing/:userId
-
-Logic:
-Aggregate usage per user for the billing cycle and apply rates.
-
-d) Role-Based Access
-Admins can update rates or fetch all user summaries.
-
-Use middleware to verify user roles.
-
-e) Optional Features
-Notifications: Send email/SMS reminders for pending bills.
-
-Real-Time Tracking: Use WebSocket for live usage updates.
-
-4. Sample API Design
-javascript
-Kopiera
-Redigera
+```javascript
 const express = require('express');
 const app = express();
 app.use(express.json());
 
-// Example Middleware for Authentication
 const authenticate = (req, res, next) => {
-  // Validate JWT token and set req.user
+  // Validate JWT and set req.user
   next();
 };
 
-// Example Route for Logging Usage
 app.post('/usage/calls', authenticate, (req, res) => {
-  const { duration } = req.body;
   // Save call log to database
   res.status(201).send({ message: 'Call log saved' });
 });
 
-// Example Route for Generating Bills
 app.get('/billing/:userId', authenticate, async (req, res) => {
-  const userId = req.params.userId;
   // Aggregate usage and calculate bill
-  const bill = await calculateBill(userId);
+  const bill = await calculateBill(req.params.userId);
   res.send(bill);
 });
 
 app.listen(3000, () => console.log('Server running on port 3000'));
-5. Deployment
-Use Docker to containerize the application.
-
-Deploy on AWS or Heroku for cloud access.
-
-Use Postman to document and test your APIs.
-
-6. Showcase
-GitHub Repo: Include a clear README with instructions to run the app locally.
-
-Demo: Host the application on a free-tier cloud service and provide a live URL.
-
-This project is manageable with Node.js and demonstrates your ability to work on real-world backend challenges, making it an excellent showcase for Ericsson!
+```
 
 ---
 
-## Implementation Overview
+## 5. Deployment
 
-### Project Structure
+- Containerize with Docker
+- Deploy on AWS, Heroku, or similar
+- Use Postman for API documentation/testing
+
+---
+
+## 6. Getting Started
+
+1. Install dependencies: `npm install`
+2. Configure `.env` with DB and JWT settings
+3. Start dev server: `npm run dev`
+4. Test endpoints with Postman
+
+---
+
+## 7. Project Structure
 
 ```
 /src
@@ -156,48 +133,9 @@ This project is manageable with Node.js and demonstrates your ability to work on
   index.ts
 ```
 
-### Endpoints
+---
 
-#### User Management
-- POST `/users/signup` — Register user
-- POST `/users/login` — Authenticate user, return JWT
-- GET `/users/:id` — Get user profile (auth required)
-
-#### Usage Logging
-- POST `/usage/calls` — Log call duration
-- POST `/usage/sms` — Log SMS count
-- POST `/usage/data` — Log data usage
-
-#### Billing
-- GET `/billing/:userId` — Generate bill for user (auth required)
-
-#### Admin (Role-Based)
-- PUT `/rates/:service` — Update rate for service (admin only)
-- GET `/admin/users` — Get all user summaries (admin only)
-
-### Middleware
-
-- `auth.ts`: JWT authentication, sets `req.user`
-- `role.ts`: Role-based access control (admin/user)
-
-### Models
-
-- `User`: Handles user CRUD and table creation
-- `UsageLog`: Handles usage logs and table creation
-- `Bill`: Handles bill generation and table creation
-- `ServiceRate`: Handles rates and table creation
-
-### Database
-
-- MySQL with tables: `users`, `user_logs`, `service_rates`, `bills`
-- Tables are created at app startup if not exist
-
-### Authentication
-
-- JWT tokens for protected routes
-- Passwords hashed with bcryptjs
-
-### Example Usage
+## 8. Example Route (TypeScript)
 
 ```typescript
 // src/routes/userRoutes.ts
@@ -213,12 +151,16 @@ router.get('/:id', authenticate, getProfile);
 export default router;
 ```
 
-### Running the Project
+---
 
-1. Install dependencies: `npm install`
-2. Configure `.env` with DB and JWT settings
-3. Start dev server: `npm run dev`
-4. Use Postman to test endpoints
+## 9. Showcase
+
+- **GitHub Repo:** Include a clear README with local setup instructions
+- **Demo:** Optionally host on a free-tier cloud service and provide a live URL
+
+---
+
+This project demonstrates real-world backend skills and is an excellent showcase for Ericsson or similar employers.
 
 
 
