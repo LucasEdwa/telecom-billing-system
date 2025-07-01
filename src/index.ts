@@ -6,6 +6,7 @@ import userRoutes from './routes/userRoutes';
 import usageRoutes from './routes/usageRoutes';
 import billingRoutes from './routes/billingRoutes';
 import rateRoutes from './routes/rateRoutes';
+import stripeRoutes from './routes/stripeRoutes';
 import swaggerUi from 'swagger-ui-express';
 import swaggerJsdoc from 'swagger-jsdoc';
 
@@ -19,6 +20,7 @@ app.use('/users', userRoutes);
 app.use('/usage', usageRoutes);
 app.use('/billing', billingRoutes);
 app.use('/rates', rateRoutes);
+app.use('/stripe', stripeRoutes);
 
 
 const swaggerSpec = swaggerJsdoc({
