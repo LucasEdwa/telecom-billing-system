@@ -37,3 +37,40 @@ export const generateBill = async (req: Request, res: Response) => {
 
   res.json({ userId, total, details: logs });
 };
+export const getBills = async (req: Request, res: Response) => {
+  const userId = req.params.userId;
+  const [bills]: any = await pool.query(
+    "SELECT * FROM bills WHERE user_id = ? ORDER BY created_at DESC",
+    [userId]
+  );
+  res.json(bills);
+};
+export const payBill = async (req: Request, res: Response) => {
+  const { billId } = req.body;
+  try {
+    // Update bill status to PAID
+    const [result]: any = await pool.query(
+      "UPDATE bills SET status = 'PAID' WHERE id = ?",
+      [billId]
+    );
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'Bill not found' });
+    }
+    res.json({ message: 'Bill paid successfully' });
+  } catch (error) {
+    console.error('Error paying bill:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+};
+export const getBillDetails = async (req: Request, res: Response) => {
+  const billId = req.params.billId;
+  const [bill]: any = await pool.query(
+    "SELECT * FROM bills WHERE id = ?",
+    [billId]
+  );
+  if (bill.length === 0) {
+    return res.status(404).json({ message: 'Bill not found' });
+  }
+  res.json(bill[0]);
+};
+

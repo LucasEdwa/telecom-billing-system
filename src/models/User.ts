@@ -47,6 +47,7 @@ export class User {
         amount DECIMAL(10,2) NOT NULL,
         period_start DATE NOT NULL,
         period_end DATE NOT NULL,
+        status ENUM('PAID', 'UNPAID') DEFAULT 'UNPAID',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       );
