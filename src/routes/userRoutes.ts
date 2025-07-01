@@ -5,7 +5,7 @@ import { pool } from '../database/connection';
 import { requireRole } from '../middleware/role';
 const router = express.Router();
 
-// Helper to wrap async route handlers and handle errors
+
 function asyncHandler(fn: any) {
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
     Promise.resolve(fn(req, res, next)).catch(next);
@@ -14,9 +14,8 @@ function asyncHandler(fn: any) {
 
 router.post('/signup', asyncHandler(signup));
 router.post('/login', asyncHandler(login));
-router.get('/:id', authenticate, asyncHandler(getProfile));
+router.get('/profile/:id', authenticate, asyncHandler(getProfile));
 
-// Add an endpoint to list all tables (admin only, for debugging)
 router.get('/db/tables', authenticate, requireRole('admin'), async (req, res, next) => {
   try {
     const [rows]: any = await pool.query('SHOW TABLES');
