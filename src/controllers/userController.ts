@@ -2,9 +2,15 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool } from '../database/connection';
+import { validatePassword } from '../utils/validatePassword';
 
 export const signup = async (req: Request, res: Response) => {
   const { username, email, password, accountType } = req.body;
+  if (!validatePassword(password)) {
+    return res.status(400).json({
+      message: 'Password must be at least 8 characters long, contain uppercase, lowercase, a digit, and a special character.'
+    });
+  }
   const hashedPassword = await bcrypt.hash(password, 10);
   await pool.query(
     'INSERT INTO users (username, email, password, account_type) VALUES (?, ?, ?, ?)',
