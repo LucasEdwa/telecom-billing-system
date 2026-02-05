@@ -1,6 +1,7 @@
 import { pool } from '../database/connection';
 import { logger } from '../utils/logger';
 import { BillCalculation, Bill, UsageDetail } from '../types';
+import { dbError, billingError, notFoundError } from '../errors/AppError';
 
 export class BillingService {
   async calculateBill(userId: string): Promise<BillCalculation> {
@@ -52,10 +53,10 @@ export class BillingService {
         details,
         period: { start: periodStart, end: periodEnd }
       };
-    } catch (error) {
+    } catch (error: any) {
       await connection.rollback();
       logger.error('Error calculating bill', { userId, error });
-      throw error;
+      throw dbError(`Bill calculation failed: ${error.message}`, 'Calculate Bill');
     } finally {
       connection.release();
     }
@@ -94,10 +95,10 @@ export class BillingService {
       });
 
       return billId;
-    } catch (error) {
+    } catch (error: any) {
       await connection.rollback();
       logger.error('Error creating bill', { userId: calculation.userId, error });
-      throw error;
+      throw dbError(`Bill creation failed: ${error.message}`, 'Create Bill');
     } finally {
       connection.release();
     }
@@ -141,9 +142,9 @@ export class BillingService {
       });
 
       return { bills, total, hasMore };
-    } catch (error) {
+    } catch (error: any) {
       logger.error('Error retrieving bills', { userId, error });
-      throw error;
+      throw dbError(`Failed to retrieve bills: ${error.message}`, 'Get Bills');
     }
   }
 
@@ -160,7 +161,7 @@ export class BillingService {
       );
 
       if (bills.length === 0) {
-        throw new Error('Bill not found or already paid');
+        throw notFoundError('Bill or already paid bill', 'Pay Bill');
       }
 
       const bill = bills[0];
@@ -181,10 +182,11 @@ export class BillingService {
       });
 
       return result.affectedRows > 0;
-    } catch (error) {
+    } catch (error: any) {
       await connection.rollback();
       logger.error('Error paying bill', { billId, error });
-      throw error;
+      if (error.name === 'AppError') throw error;
+      throw dbError(`Payment processing failed: ${error.message}`, 'Pay Bill');
     } finally {
       connection.release();
     }
@@ -203,9 +205,9 @@ export class BillingService {
 
       logger.info('Bill retrieved successfully', { billId });
       return bills[0];
-    } catch (error) {
+    } catch (error: any) {
       logger.error('Error retrieving bill', { billId, error });
-      throw error;
+      throw dbError(`Failed to retrieve bill: ${error.message}`, 'Get Bill');
     }
   }
 }

@@ -1,29 +1,38 @@
 import { Request, Response, NextFunction } from 'express';
 import { logger } from '../utils/logger';
 import { ApiResponse } from '../types';
+import { AppError } from '../errors/AppError';
 
 export const errorHandler = (
-  error: Error,
+  error: Error | AppError,
   req: Request,
   res: Response,
   next: NextFunction
 ): void => {
-  logger.error('Unhandled error', {
-    error: error.message,
-    stack: error.stack,
+  const isAppError = error instanceof AppError;
+  const statusCode = isAppError ? error.statusCode : 500;
+  const source = isAppError ? error.source : 'SYSTEM';
+  const operation = isAppError ? error.operation : 'Unknown';
+
+  logger.error(`Error in ${source}/${operation}`, {
+    message: error.message,
+    source,
+    operation,
     url: req.url,
     method: req.method,
-    ip: req.ip
+    userId: (req as any).user?.id,
+    stack: error.stack
   });
 
   const response: ApiResponse = {
     success: false,
-    message: process.env.NODE_ENV === 'production' 
+    message: process.env.NODE_ENV === 'production' && !isAppError
       ? 'Internal server error' 
-      : error.message
+      : error.message,
+    errors: isAppError ? [`${source}/${operation}`] : undefined
   };
 
-  res.status(500).json(response);
+  res.status(statusCode).json(response);
 };
 
 export const asyncHandler = (fn: Function) => {
