@@ -50,6 +50,11 @@ app.get('/', (req, res) => {
   res.send('Telecom Billing System API');
 });
 
+// Error handling middleware (must be last)
+import { errorHandler, notFound } from './middleware/errorHandler';
+app.use(notFound);
+app.use(errorHandler);
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
   await User.createTableIfNotExists();
