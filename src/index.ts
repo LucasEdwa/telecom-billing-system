@@ -9,12 +9,36 @@ import rateRoutes from './routes/rateRoutes';
 import stripeRoutes from './routes/stripeRoutes';
 import swaggerUi from 'swagger-ui-express';
 import swaggerJsdoc from 'swagger-jsdoc';
-
+import { 
+  generalRateLimit, 
+  securityHeaders, 
+  sanitizeInput, 
+  requestSizeLimit 
+} from './middleware/security';
 
 dotenv.config();
 const app = express();
-app.use(express.json());
-app.use(cors());
+
+// Security middleware (must be first)
+app.use(securityHeaders);
+app.use(generalRateLimit);
+app.use(requestSizeLimit);
+
+// CORS configuration
+const corsOptions = {
+  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key', 'x-request-id']
+};
+app.use(cors(corsOptions));
+
+// Body parsing with limits
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+
+// Input sanitization
+app.use(sanitizeInput);
 
 app.use('/users', userRoutes);
 app.use('/usage', usageRoutes);

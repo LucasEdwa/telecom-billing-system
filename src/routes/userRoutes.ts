@@ -1,10 +1,10 @@
 import express from 'express';
 import { signup, login, getProfile } from '../controllers/userController';
 import { authenticate } from '../middleware/auth';
-import { pool } from '../database/connection';
 import { requireRole } from '../middleware/role';
+import { authRateLimit, validateApiKey } from '../middleware/security';
+import { pool } from '../database/connection';
 const router = express.Router();
-
 
 function asyncHandler(fn: any) {
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -12,11 +12,13 @@ function asyncHandler(fn: any) {
   };
 }
 
-router.post('/signup', asyncHandler(signup));
-router.post('/login', asyncHandler(login));
+// Auth endpoints with rate limiting
+router.post('/signup', authRateLimit, asyncHandler(signup));
+router.post('/login', authRateLimit, asyncHandler(login));
 router.get('/profile/:id', authenticate, asyncHandler(getProfile));
 
-router.get('/db/tables', authenticate, requireRole('admin'), async (req, res, next) => {
+// Admin endpoints with API key validation
+router.get('/db/tables', authenticate, requireRole('admin'), validateApiKey, async (req, res, next) => {
   try {
     const [rows]: any = await pool.query('SHOW TABLES');
     res.json(rows);

@@ -3,8 +3,11 @@ import { logCall, logSMS, logData } from '../controllers/usageController';
 import { authenticate } from '../middleware/auth';
 const router = express.Router();
 
-router.post('/calls', authenticate, logCall);
-router.post('/sms', authenticate, logSMS);
-router.post('/data', authenticate, logData);
+// All usage routes require authentication
+router.use(authenticate);
+
+router.post('/calls', logCall);
+router.post('/sms', logSMS);
+router.post('/data', logData);
 
 export default router;

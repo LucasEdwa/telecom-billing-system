@@ -52,6 +52,17 @@ export class User {
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       );
     `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS login_attempts (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        ip VARCHAR(45) NOT NULL,
+        email VARCHAR(100),
+        attempts INT DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_ip_time (ip, created_at),
+        INDEX idx_email_time (email, created_at)
+      );
+    `);
     console.log("User table and related tables created or already exist.");
   }
 }

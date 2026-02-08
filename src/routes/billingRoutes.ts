@@ -1,6 +1,7 @@
 import express from 'express';
 import { generateBill, getBills, payBill, getBillDetails } from '../controllers/billingController';
 import { authenticate } from '../middleware/auth';
+import { billingRateLimit } from '../middleware/security';
 import {
   validateUserId,
   validateBillId,
@@ -11,9 +12,12 @@ import {
 
 const router = express.Router();
 
+// All billing routes require authentication and rate limiting
+router.use(authenticate);
+router.use(billingRateLimit);
+
 // Generate bill for user
 router.post('/generate/:userId', 
-  authenticate, 
   validateUserId, 
   handleValidationErrors, 
   generateBill
@@ -21,7 +25,6 @@ router.post('/generate/:userId',
 
 // Get bills for user with pagination
 router.get('/user/:userId', 
-  authenticate, 
   validateUserId, 
   validatePagination, 
   handleValidationErrors, 
@@ -30,7 +33,6 @@ router.get('/user/:userId',
 
 // Pay a bill
 router.post('/pay', 
-  authenticate, 
   validatePayBill, 
   handleValidationErrors, 
   payBill
@@ -38,7 +40,6 @@ router.post('/pay',
 
 // Get bill details
 router.get('/:billId', 
-  authenticate, 
   validateBillId, 
   handleValidationErrors, 
   getBillDetails

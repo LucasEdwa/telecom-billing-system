@@ -1,18 +1,23 @@
 import express from 'express';
-import { updateRate } from '../controllers/rateController';
+import { updateRate, getRates } from '../controllers/rateController';
 import { authenticate } from '../middleware/auth';
 import { requireRole } from '../middleware/role';
-import { getRates } from '../controllers/rateController';
+import { validateApiKey } from '../middleware/security';
 
 const router = express.Router();
 
-// Fix: Only use updateRate for PUT, and add a proper GET handler if needed
-router.put('/:service', authenticate, requireRole('admin'), (req, res, next) => {
+// All rate operations require authentication and admin role
+router.use(authenticate);
+router.use(requireRole('admin'));
+router.use(validateApiKey);
+
+// Update rate (admin only with API key)
+router.put('/:service', (req, res, next) => {
   Promise.resolve(updateRate(req, res)).catch(next);
 });
 
-// Optionally, implement a GET handler for fetching a rate
-router.get('/:service', authenticate, requireRole('admin'), (req, res, next) => {
+// Get rates (admin only with API key)
+router.get('/:service', (req, res, next) => {
   Promise.resolve(getRates(req, res)).catch(next);
 });
 
