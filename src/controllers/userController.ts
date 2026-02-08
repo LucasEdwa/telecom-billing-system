@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+import jwt, { Secret } from 'jsonwebtoken';
 import { pool } from '../database/connection';
 import { validatePassword } from '../utils/validatePassword';
-import { validationError, dbError, notFoundError } from '../errors/AppError';
+import { validationError, dbError, notFoundError, authError } from '../errors/AppError';
 
 export const signup = async (req: Request, res: Response) => {
   try {
@@ -62,10 +62,15 @@ export const login = async (req: Request, res: Response) => {
     // Clear failed attempts on successful login
     await pool.query('DELETE FROM login_attempts WHERE ip = ? OR email = ?', [clientIp, email]);
     
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      throw dbError('JWT_SECRET is not configured', 'User Login');
+    }
+    
     const token = jwt.sign(
       { id: user.id, accountType: user.account_type }, 
-      process.env.JWT_SECRET!,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+      jwtSecret as Secret,
+      { expiresIn: process.env.JWT_EXPIRES_IN ?? '7d' } as jwt.SignOptions
     );
     
     res.json({ 
