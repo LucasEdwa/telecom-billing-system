@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import Stripe from 'stripe';
 import { payBill } from './billingController';
 import { paymentError, validationError } from '../errors/AppError';
@@ -24,7 +24,7 @@ export const createPaymentIntent = async (req: Request, res: Response) => {
   }
 };
 
-export const confirmBillPayment = async (req: Request, res: Response) => {
+export const confirmBillPayment = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { billId, paymentIntentId } = req.body;
     if (!billId || !paymentIntentId) {
@@ -33,7 +33,7 @@ export const confirmBillPayment = async (req: Request, res: Response) => {
     const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
     if (paymentIntent.status === 'succeeded') {
       req.body.billId = billId;
-      await payBill(req, res);
+      await payBill(req, res, next);
     } else {
       throw paymentError('Payment not successful', 'Confirm Payment');
     }
