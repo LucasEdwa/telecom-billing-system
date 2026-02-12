@@ -1,13 +1,28 @@
-FROM node:18
+FROM node:18-alpine
 
 WORKDIR /app
 
+# Copy package files
 COPY package*.json ./
-RUN npm install
 
+# Install dependencies
+RUN npm ci --only=production
+
+# Install TypeScript and build dependencies
+RUN npm install -g typescript
+RUN npm install --save-dev @types/node
+
+# Copy source code
 COPY . .
 
+# Build the application
+RUN npm run build
 
-EXPOSE 3000
+# Remove dev dependencies and source files
+RUN npm prune --production
+RUN rm -rf src tsconfig.json
 
-CMD ["npm", "run", "dev"]
+EXPOSE 8080
+
+# Use production start command
+CMD ["npm", "start"]

@@ -6,7 +6,7 @@ import userRoutes from './routes/userRoutes';
 import usageRoutes from './routes/usageRoutes';
 import billingRoutes from './routes/billingRoutes';
 import rateRoutes from './routes/rateRoutes';
-import stripeRoutes from './routes/stripeRoutes';
+// import stripeRoutes from './routes/stripeRoutes'; // Stripe disabled
 import swaggerUi from 'swagger-ui-express';
 import swaggerJsdoc from 'swagger-jsdoc';
 import { 
@@ -16,6 +16,8 @@ import {
   requestSizeLimit 
 } from './middleware/security';
 
+// Error handling middleware (must be last)
+import { errorHandler, notFound } from './middleware/errorHandler';
 dotenv.config();
 const app = express();
 
@@ -36,16 +38,6 @@ app.use(cors(corsOptions));
 // Body parsing with limits
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
-
-// Input sanitization
-app.use(sanitizeInput);
-
-app.use('/users', userRoutes);
-app.use('/usage', usageRoutes);
-app.use('/billing', billingRoutes);
-app.use('/rates', rateRoutes);
-app.use('/stripe', stripeRoutes);
-
 
 const swaggerSpec = swaggerJsdoc({
   definition: {
@@ -68,19 +60,48 @@ const swaggerSpec = swaggerJsdoc({
   apis: ['./src/routes/*.ts', './src/swagger.ts'],
 });
 
+// Setup Swagger UI before other routes
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-app.get('/', (req, res) => {
-  res.send('Telecom Billing System API');
+// Input sanitization (skip for /api-docs)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api-docs')) {
+    return next();
+  }
+  sanitizeInput(req, res, next);
 });
 
-// Error handling middleware (must be last)
-import { errorHandler, notFound } from './middleware/errorHandler';
+app.use('/users', userRoutes);
+app.use('/usage', usageRoutes);
+app.use('/billing', billingRoutes);
+app.use('/rates', rateRoutes);
+// app.use('/stripe', stripeRoutes); // Stripe disabled
+
+app.get('/', (req, res) => {
+  res.redirect('/api-docs');
+});
+
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'healthy', 
+    timestamp: new Date().toISOString(),
+    version: '1.0.0' 
+  });
+});
+
 app.use(notFound);
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, async () => {
-  await User.createTableIfNotExists();
   console.log(`Server running on port ${PORT}`);
+  console.log(`Swagger docs available at: http://localhost:${PORT}/api-docs`);
+  
+  // Try to create table, but don't crash if database isn't ready
+  try {
+    await User.createTableIfNotExists();
+    console.log('Database connected and tables ready');
+  } catch (error) {
+    console.warn('Database not ready yet, app will work without DB for now:', error instanceof Error ? error.message : String(error));
+  }
 });
