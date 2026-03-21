@@ -12,11 +12,88 @@ function asyncHandler(fn: any) {
   };
 }
 
+/**
+ * @swagger
+ * /users/signup:
+ *   post:
+ *     tags: [Users]
+ *     summary: Register a new user
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *               role:
+ *                 type: string
+ *                 enum: [user, admin]
+ *     responses:
+ *       201:
+ *         description: User created successfully
+ */
 // Auth endpoints with rate limiting
 router.post('/signup', authRateLimit, asyncHandler(signup));
+
+/**
+ * @swagger
+ * /users/login:
+ *   post:
+ *     tags: [Users]
+ *     summary: Login user
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Login successful
+ */
 router.post('/login', authRateLimit, asyncHandler(login));
+
+/**
+ * @swagger
+ * /users/profile/{id}:
+ *   get:
+ *     tags: [Users]
+ *     summary: Get user profile
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: User profile data
+ */
 router.get('/profile/:id', authenticate, asyncHandler(getProfile));
 
+/**
+ * @swagger
+ * /users/db/tables:
+ *   get:
+ *     tags: [Users]
+ *     summary: Get database tables (Admin only)
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of database tables
+ */
 // Admin endpoints with API key validation
 router.get('/db/tables', authenticate, requireRole('admin'), validateApiKey, async (req, res, next) => {
   try {

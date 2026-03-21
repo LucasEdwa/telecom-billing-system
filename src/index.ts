@@ -45,7 +45,16 @@ const swaggerSpec = swaggerJsdoc({
     info: {
       title: 'Telecom Billing System API',
       version: '1.0.0',
+      description: 'A comprehensive telecom billing system with user management, usage tracking, and billing features.',
     },
+    servers: [
+      {
+        url: process.env.NODE_ENV === 'production' 
+          ? 'https://telecom-billing-system-309314380576.us-central1.run.app'
+          : 'http://localhost:8080',
+        description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server',
+      },
+    ],
     components: {
       securitySchemes: {
         bearerAuth: {
@@ -57,7 +66,12 @@ const swaggerSpec = swaggerJsdoc({
     },
     security: [{ bearerAuth: [] }],
   },
-  apis: ['./src/routes/*.ts', './src/swagger.ts'],
+  apis: [
+    './src/routes/*.ts', 
+    './src/swagger.ts',
+    './dist/routes/*.js',
+    './dist/swagger.js'
+  ],
 });
 
 // Setup Swagger UI before other routes
