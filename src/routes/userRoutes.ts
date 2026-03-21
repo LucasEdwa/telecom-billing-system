@@ -24,17 +24,44 @@ function asyncHandler(fn: any) {
  *         application/json:
  *           schema:
  *             type: object
+ *             required: [email, password, role]
  *             properties:
  *               email:
  *                 type: string
+ *                 example: john@example.com
  *               password:
  *                 type: string
+ *                 example: MyStr0ng!K3y#2026
  *               role:
  *                 type: string
  *                 enum: [user, admin]
+ *                 example: user
+ *               username:
+ *                 type: string
+ *                 example: johndoe
  *     responses:
  *       201:
  *         description: User created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: User registered successfully
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                       example: 1
+ *                     email:
+ *                       type: string
+ *                       example: john@example.com
  */
 // Auth endpoints with rate limiting
 router.post('/signup', authRateLimit, asyncHandler(signup));
@@ -51,14 +78,43 @@ router.post('/signup', authRateLimit, asyncHandler(signup));
  *         application/json:
  *           schema:
  *             type: object
+ *             required: [email, password]
  *             properties:
  *               email:
  *                 type: string
+ *                 example: john@example.com
  *               password:
  *                 type: string
+ *                 example: MyStr0ng!K3y#2026
  *     responses:
  *       200:
- *         description: Login successful
+ *         description: Login successful - Returns JWT token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Login successful
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     token:
+ *                       type: string
+ *                       example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+ *                     user:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: integer
+ *                           example: 1
+ *                         email:
+ *                           type: string
+ *                           example: john@example.com
  */
 router.post('/login', authRateLimit, asyncHandler(login));
 

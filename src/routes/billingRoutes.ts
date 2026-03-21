@@ -30,9 +30,30 @@ router.use(billingRateLimit);
  *         required: true
  *         schema:
  *           type: integer
+ *           example: 1
  *     responses:
  *       200:
  *         description: Bill generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Bill generated successfully
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     billId:
+ *                       type: integer
+ *                       example: 123
+ *                     amount:
+ *                       type: number
+ *                       example: 45.67
  */
 // Generate bill for user
 router.post('/generate/:userId', 
@@ -89,14 +110,28 @@ router.get('/user/:userId',
  *         application/json:
  *           schema:
  *             type: object
+ *             required: [billId, amount]
  *             properties:
  *               billId:
  *                 type: integer
+ *                 example: 123
  *               amount:
  *                 type: number
+ *                 example: 45.67
  *     responses:
  *       200:
  *         description: Payment successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Payment processed successfully
  */
 // Pay a bill
 router.post('/pay', 

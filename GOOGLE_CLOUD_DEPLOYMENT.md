@@ -45,11 +45,11 @@ gcloud sql databases create telecomdb --instance=telecom-db
 # Create user
 gcloud sql users create telecom-user \
     --instance=telecom-db \
-    --password=YOUR_SECURE_PASSWORD
+    --password=MySecureDBPass123
 ```
 
 ### 3. Update Configuration
-1. Edit `deploy.sh` and replace `your-gcp-project-id` with your actual project ID
+1. Edit `deploy.sh` and replace `your-gcp-project-id` with your actual project ID.
 2. Get your Cloud SQL connection string:
    ```bash
    gcloud sql instances describe telecom-db --format="value(connectionName)"
@@ -66,7 +66,7 @@ After deployment, set environment variables in Cloud Run:
 ```bash
 gcloud run services update telecom-billing-system \
     --region=us-central1 \
-    --set-env-vars="DB_HOST=/cloudsql/YOUR_PROJECT:us-central1:telecom-db,DB_USERNAME=telecom-user,DB_PASSWORD=YOUR_SECURE_PASSWORD,DB_DATABASE=telecomdb,JWT_SECRET=your-jwt-secret"
+    --set-env-vars="NODE_ENV=production,DB_HOST=/cloudsql/YOUR_PROJECT:us-central1:telecom-db,DB_PORT=3306,DB_USERNAME=telecom-user,DB_PASSWORD=MySecureDBPass123,DB_DATABASE=telecomdb,JWT_SECRET=your-super-secret-jwt-key-production-2026"
 ```
 
 ## Manual Deployment (Alternative)
@@ -83,10 +83,11 @@ If you prefer manual deployment through Google Cloud Console:
 
 - `NODE_ENV`: production
 - `DB_HOST`: Your Cloud SQL connection string
-- `DB_USERNAME`: Your database username
-- `DB_PASSWORD`: Your database password  
+- `DB_PORT`: 3306
+- `DB_USERNAME`: telecom-user
+- `DB_PASSWORD`: MySecureDBPass123
 - `DB_DATABASE`: telecomdb
-- `JWT_SECRET`: A secure random string
+- `JWT_SECRET`: your-super-secret-jwt-key-production-2026
 - `ALLOWED_ORIGINS`: Your frontend domain(s)
 
 ## Monitoring and Logs
@@ -107,15 +108,20 @@ For production:
 
 ## Troubleshooting
 
-1. **Database Connection Issues**: Ensure Cloud SQL instance is running and connection string is correct
-2. **Memory Issues**: Increase memory allocation in Cloud Run settings
-3. **Cold Starts**: Consider using minimum instances for better performance
-4. **Authentication**: Make sure all required APIs are enabled
+1. **Database Connection Issues**: Ensure Cloud SQL instance is running and connection string is correct.
+   - Check Cloud Run logs for connection errors.
+   - Verify that the `DB_HOST` is set to the correct Cloud SQL connection string.
+   - Ensure the database user and password are correct.
+   - Confirm that the Cloud SQL instance has the correct network settings.
+
+2. **Memory Issues**: Increase memory allocation in Cloud Run settings.
+3. **Cold Starts**: Consider using minimum instances for better performance.
+4. **Authentication**: Make sure all required APIs are enabled.
 
 ## Security Best Practices
 
-1. Never commit `.env` files with real credentials
-2. Use Google Secret Manager for sensitive data
-3. Enable Cloud Run authentication if needed
-4. Set up proper CORS origins
-5. Use HTTPS only (Cloud Run provides this by default)
+1. Never commit `.env` files with real credentials.
+2. Use Google Secret Manager for sensitive data.
+3. Enable Cloud Run authentication if needed.
+4. Set up proper CORS origins.
+5. Use HTTPS only (Cloud Run provides this by default).

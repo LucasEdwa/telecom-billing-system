@@ -26,7 +26,7 @@ gcloud run deploy $SERVICE_NAME \
   --platform managed \
   --region $REGION \
   --allow-unauthenticated \
-  --set-env-vars="NODE_ENV=production" \
+  --set-env-vars="NODE_ENV=production,DB_HOST=/cloudsql/$PROJECT_ID:$REGION:telecom-db,DB_PORT=3306,DB_USERNAME=telecom-user,DB_PASSWORD=MySecureDBPass123,DB_DATABASE=telecomdb,JWT_SECRET=your-super-secret-jwt-key-production-2026" \
   --memory=1Gi \
   --cpu=1 \
   --max-instances=10 \
@@ -36,6 +36,6 @@ echo "✅ Deployment completed!"
 echo "🔗 Your app will be available at the URL shown above"
 echo ""
 echo "📋 Next steps:"
-echo "1. Set up Google Cloud SQL for your database"
-echo "2. Update environment variables in Cloud Run console"
+echo "1. Verify your app is running at the provided URL"
+echo "2. Monitor logs using 'gcloud logs read --service=$SERVICE_NAME --limit=50'"
 echo "3. Configure your domain (optional)"

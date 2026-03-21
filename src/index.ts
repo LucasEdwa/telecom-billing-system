@@ -26,6 +26,9 @@ app.use(securityHeaders);
 app.use(generalRateLimit);
 app.use(requestSizeLimit);
 
+// Trust the first proxy to fix rate limit issue
+app.set('trust proxy', 1);
+
 // CORS configuration
 const corsOptions = {
   origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
@@ -51,7 +54,7 @@ const swaggerSpec = swaggerJsdoc({
       {
         url: process.env.NODE_ENV === 'production' 
           ? 'https://telecom-billing-system-309314380576.us-central1.run.app'
-          : 'http://localhost:8080',
+          : `http://localhost:${process.env.PORT || 3000}`,
         description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server',
       },
     ],
@@ -77,9 +80,12 @@ const swaggerSpec = swaggerJsdoc({
 // Setup Swagger UI before other routes
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-// Input sanitization (skip for /api-docs)
+// Input sanitization (skip for safe routes)
 app.use((req, res, next) => {
-  if (req.path.startsWith('/api-docs')) {
+  if (req.path.startsWith('/api-docs') || 
+      req.path === '/health' || 
+      req.path === '/' ||
+      req.path === '/favicon.ico') {
     return next();
   }
   sanitizeInput(req, res, next);
@@ -106,7 +112,7 @@ app.get('/health', (req, res) => {
 app.use(notFound);
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || (process.env.NODE_ENV === 'production' ? 8080 : 3000);
 app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Swagger docs available at: http://localhost:${PORT}/api-docs`);

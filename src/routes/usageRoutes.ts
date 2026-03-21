@@ -20,16 +20,32 @@ router.use(authenticate);
  *         application/json:
  *           schema:
  *             type: object
+ *             required: [userId, duration, phoneNumber]
  *             properties:
  *               userId:
  *                 type: integer
+ *                 example: 1
  *               duration:
  *                 type: number
+ *                 example: 300
+ *                 description: Call duration in seconds
  *               phoneNumber:
  *                 type: string
+ *                 example: "+1234567890"
  *     responses:
  *       200:
  *         description: Call logged successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Call usage logged successfully
  */
 router.post('/calls', logCall);
 
@@ -74,16 +90,33 @@ router.post('/sms', logSMS);
  *         application/json:
  *           schema:
  *             type: object
+ *             required: [userId, dataUsed]
  *             properties:
  *               userId:
  *                 type: integer
+ *                 example: 1
  *               dataUsed:
  *                 type: number
+ *                 example: 1024
+ *                 description: Data used in MB
  *               dataType:
  *                 type: string
+ *                 example: mobile
+ *                 enum: [mobile, wifi]
  *     responses:
  *       200:
  *         description: Data usage logged successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Data usage logged successfully
  */
 router.post('/data', logData);
 
