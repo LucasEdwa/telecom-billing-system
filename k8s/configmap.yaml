@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: telecom-billing-config
+  namespace: telecom-billing
+data:
+  NODE_ENV: "production"
+  PORT: "8080"
+  DB_HOST: "34.30.47.83"
+  DB_PORT: "3306"
+  DB_DATABASE: "telecomdb"
+  LOG_LEVEL: "info"
+  TRUST_PROXY: "true"
+  RATE_LIMIT_WINDOW_MS: "900000"
+  RATE_LIMIT_MAX_REQUESTS: "100"
+  AUTH_RATE_LIMIT_MAX: "5"
+  BILLING_RATE_LIMIT_MAX: "10"
+  JWT_EXPIRES_IN: "7d"
+  ALLOWED_ORIGINS: "https://api.lucasdev"

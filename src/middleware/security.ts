@@ -3,10 +3,21 @@ import helmet from 'helmet';
 import { Request, Response, NextFunction } from 'express';
 import { validationError } from '../errors/AppError';
 
+// Resolve the real client IP from X-Forwarded-For (set by nginx ingress)
+// Falls back to req.ip when not behind a proxy
+const getClientIp = (req: Request): string => {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) {
+    return (Array.isArray(forwarded) ? forwarded[0] : forwarded).split(',')[0].trim();
+  }
+  return req.ip ?? 'unknown';
+};
+
 // Rate limiting configurations
 export const generalRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  max: 100,
+  keyGenerator: getClientIp,
   message: {
     success: false,
     message: 'Too many requests from this IP, please try again later.',
@@ -18,7 +29,8 @@ export const generalRateLimit = rateLimit({
 
 export const authRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // limit each IP to 5 login attempts per windowMs
+  max: 5,
+  keyGenerator: getClientIp,
   message: {
     success: false,
     message: 'Too many login attempts, please try again later.',
@@ -29,7 +41,8 @@ export const authRateLimit = rateLimit({
 
 export const billingRateLimit = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 10, // limit billing operations
+  max: 10,
+  keyGenerator: getClientIp,
   message: {
     success: false,
     message: 'Too many billing operations, please try again later.',
@@ -55,7 +68,7 @@ export const securityHeaders = helmet({
 });
 
 // Input sanitization
-export const sanitizeInput = (req: Request, res: Response, next: NextFunction) => {
+export const sanitizeInput = (req: Request, _res: Response, next: NextFunction) => {
   try {
     // Remove potential XSS and injection characters
     const sanitize = (obj: any): any => {
@@ -105,7 +118,7 @@ export const sanitizeInput = (req: Request, res: Response, next: NextFunction) =
 };
 
 // Request size limiting
-export const requestSizeLimit = (req: Request, res: Response, next: NextFunction) => {
+export const requestSizeLimit = (req: Request, _res: Response, next: NextFunction) => {
   const contentLength = parseInt(req.headers['content-length'] || '0');
   const maxSize = 1024 * 1024; // 1MB limit
   
@@ -116,7 +129,7 @@ export const requestSizeLimit = (req: Request, res: Response, next: NextFunction
 };
 
 // API key validation for admin endpoints
-export const validateApiKey = (req: Request, res: Response, next: NextFunction) => {
+export const validateApiKey = (req: Request, _res: Response, next: NextFunction) => {
   const apiKey = req.headers['x-api-key'];
   const validApiKey = process.env.API_KEY;
   

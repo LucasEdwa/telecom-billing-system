@@ -1,0 +1,31 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: telecom-billing-ingress
+  namespace: telecom-billing
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    # Redirect all HTTP traffic to HTTPS
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Forward real client IP to the app
+    nginx.ingress.kubernetes.io/use-forwarded-headers: "true"
+    nginx.ingress.kubernetes.io/compute-full-forwarded-for: "true"
+    nginx.ingress.kubernetes.io/forwarded-for-header: "X-Forwarded-For"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - api.lucasdev
+      secretName: telecom-billing-tls
+  rules:
+    - host: api.lucasdev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: telecom-billing-svc
+                port:
+                  number: 80

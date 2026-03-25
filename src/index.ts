@@ -30,8 +30,9 @@ app.use(requestSizeLimit);
 app.set('trust proxy', 1);
 
 // CORS configuration
+const allowedOrigins = process.env.ALLOWED_ORIGINS;
 const corsOptions = {
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
+  origin: allowedOrigins === '*' ? true : allowedOrigins?.split(',') || ['http://localhost:3000'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key', 'x-request-id']
@@ -42,43 +43,49 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
-const swaggerSpec = swaggerJsdoc({
-  definition: {
-    openapi: '3.0.0',
-    info: {
-      title: 'Telecom Billing System API',
-      version: '1.0.0',
-      description: 'A comprehensive telecom billing system with user management, usage tracking, and billing features.',
-    },
-    servers: [
-      {
-        url: process.env.NODE_ENV === 'production' 
-          ? 'https://telecom-billing-system-309314380576.us-central1.run.app'
-          : `http://localhost:${process.env.PORT || 3000}`,
-        description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server',
-      },
-    ],
-    components: {
-      securitySchemes: {
-        bearerAuth: {
-          type: 'http',
-          scheme: 'bearer',
-          bearerFormat: 'JWT',
-        },
-      },
-    },
-    security: [{ bearerAuth: [] }],
+const swaggerDefinition = {
+  openapi: '3.0.0',
+  info: {
+    title: 'Telecom Billing System API',
+    version: '1.0.0',
+    description: 'A comprehensive telecom billing system with user management, usage tracking, and billing features.',
   },
+  components: {
+    securitySchemes: {
+      bearerAuth: {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+      },
+    },
+  },
+  security: [{ bearerAuth: [] }],
+};
+
+const swaggerOptions = {
+  definition: swaggerDefinition,
   apis: [
-    './src/routes/*.ts', 
+    './src/routes/*.ts',
     './src/swagger.ts',
     './dist/routes/*.js',
     './dist/swagger.js'
   ],
-});
+};
 
-// Setup Swagger UI before other routes
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+// Setup Swagger UI — server URL is injected dynamically from the incoming request
+// so it works regardless of the environment (local, minikube, cloud)
+app.use('/api-docs', swaggerUi.serve, (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const proto = req.headers['x-forwarded-proto'] || req.protocol;
+  const host = req.headers['x-forwarded-host'] || req.get('host');
+  const dynamicSpec = swaggerJsdoc({
+    ...swaggerOptions,
+    definition: {
+      ...swaggerDefinition,
+      servers: [{ url: `${proto}://${host}`, description: 'Current server' }],
+    },
+  });
+  swaggerUi.setup(dynamicSpec)(req, res, next);
+});
 
 // Input sanitization (skip for safe routes)
 app.use((req, res, next) => {
@@ -97,11 +104,11 @@ app.use('/billing', billingRoutes);
 app.use('/rates', rateRoutes);
 // app.use('/stripe', stripeRoutes); // Stripe disabled
 
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
   res.redirect('/api-docs');
 });
 
-app.get('/health', (req, res) => {
+app.get('/health', (_req, res) => {
   res.json({ 
     status: 'healthy', 
     timestamp: new Date().toISOString(),

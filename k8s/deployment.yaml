@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telecom-billing
+  namespace: telecom-billing
+  labels:
+    app: telecom-billing
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: telecom-billing
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: telecom-billing
+    spec:
+      containers:
+        - name: telecom-billing
+          # Image is set by the CD pipeline (ghcr.io/<owner>/telecom-billing:<sha>)
+          image: telecom-billing:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: telecom-billing-config
+            - secretRef:
+                name: telecom-billing-secret
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            failureThreshold: 3
+      restartPolicy: Always
