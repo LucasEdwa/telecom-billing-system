@@ -5,6 +5,10 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   # ─── Job 1: Build & push Docker image to GHCR ────────────────────────────────
   build-push:
