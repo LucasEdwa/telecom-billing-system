@@ -97,12 +97,13 @@ jobs:
             --region "${{ secrets.GCP_REGION }}" \
             --project "${{ secrets.GCP_PROJECT_ID }}" \
             --allow-unauthenticated \
+            --add-cloudsql-instances "${{ secrets.GCP_PROJECT_ID }}:${{ secrets.GCP_REGION }}:telecom-db" \
             --memory 1Gi \
             --cpu 1 \
             --max-instances 10 \
             --port 8080 \
             --set-env-vars "NODE_ENV=production" \
-            --set-env-vars "DB_HOST=${{ secrets.DB_HOST }}" \
+            --set-env-vars "DB_HOST=/cloudsql/${{ secrets.GCP_PROJECT_ID }}:${{ secrets.GCP_REGION }}:telecom-db" \
             --set-env-vars "DB_PORT=3306" \
             --set-env-vars "DB_USERNAME=${{ secrets.DB_USERNAME }}" \
             --set-env-vars "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" \
