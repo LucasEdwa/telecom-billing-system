@@ -3,7 +3,31 @@ import request from 'supertest';
 import express from 'express';
 import { BillingService } from '../../src/services/billingService';
 
-// Mock the billing service
+// Mock all external dependencies to prevent real DB pool creation
+jest.mock('../../src/database/connection', () => ({
+  pool: {
+    query: jest.fn(),
+    getConnection: jest.fn(),
+  },
+}));
+
+jest.mock('../../src/utils/logger', () => ({
+  logger: {
+    info: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+  },
+}));
+
+jest.mock('../../src/services/deadLetterService', () => ({
+  DeadLetterService: jest.fn().mockImplementation(() => ({
+    enqueue: jest.fn().mockResolvedValue(1),
+    getPending: jest.fn().mockResolvedValue({ items: [], total: 0 }),
+    resolve: jest.fn().mockResolvedValue(true),
+    discard: jest.fn().mockResolvedValue(true),
+  })),
+}));
+
 jest.mock('../../src/services/billingService');
 
 describe('Billing Controller', () => {

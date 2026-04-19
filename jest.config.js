@@ -11,4 +11,6 @@ module.exports = {
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'lcov', 'html'],
   setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
+  // Force clean exit — prevents open DB pool handles from hanging in CI
+  forceExit: true,
 };

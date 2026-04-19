@@ -1,12 +1,28 @@
 import { describe, it, expect, beforeEach } from '@jest/globals';
 import { Request, Response } from 'express';
 
-// Mock the database pool BEFORE importing controllers
+// Mock all external dependencies BEFORE importing controllers
 const mockQuery = jest.fn();
 jest.mock('../../src/database/connection', () => ({
   pool: {
     query: mockQuery,
   },
+}));
+
+jest.mock('../../src/utils/logger', () => ({
+  logger: {
+    info: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+  },
+}));
+
+// Mock the DLQ service to prevent real pool access during validation failures
+const mockEnqueue = jest.fn().mockResolvedValue(1);
+jest.mock('../../src/services/deadLetterService', () => ({
+  DeadLetterService: jest.fn().mockImplementation(() => ({
+    enqueue: mockEnqueue,
+  })),
 }));
 
 jest.mock('uuid', () => ({
@@ -26,6 +42,7 @@ const mockRes = () => {
 describe('UsageController', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockEnqueue.mockResolvedValue(1);
   });
 
   describe('logCall', () => {
