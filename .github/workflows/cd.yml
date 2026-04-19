@@ -90,8 +90,9 @@ jobs:
 
       - name: Deploy to Cloud Run
         run: |
+          AR_IMAGE="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/telecom-billing/telecom-billing:${{ github.sha }}"
           gcloud run deploy telecom-billing-system \
-            --image "${{ needs.build-push.outputs.ar_sha_tag }}" \
+            --image "$AR_IMAGE" \
             --platform managed \
             --region "${{ secrets.GCP_REGION }}" \
             --project "${{ secrets.GCP_PROJECT_ID }}" \
