@@ -56,6 +56,13 @@
 │  │                   ──► INSERT ledger PAYMENT entry                  │   │
 │  │                                                                   │   │
 │  │  getLedger()      ──► Read immutable audit trail                   │   │
+│  │                                                                   │   │
+│  │  reconcileLedger()──► Prove every cent: recompute full balance    │   │
+│  │                   ──► Cross-check against unpaid bills            │   │
+│  │                   ──► Transactional snapshot (REPEATABLE READ)    │   │
+│  │                                                                   │   │
+│  │  searchBills()    ──► Multi-filter search (date/amount/status)    │   │
+│  │                   ──► Composite index-backed (O(log n))           │   │
 │  └──────────────────────────────────────────────────────────────────┘   │
 │                                                                         │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
@@ -343,10 +350,61 @@ IEEE 754 floating-point precision issues (e.g., `0.1 + 0.2 !== 0.3` in JavaScrip
 
 | Layer | Approach |
 |-------|----------|
-| Database | `DECIMAL(10,2)` for amounts/rates, `DECIMAL(12,4)` for quantities |
-| Service | `Decimal.js` with `ROUND_HALF_UP` for multiplication and summation |
+| TypeScript | Branded types (`Cents`, `Money`, `UserId`) — compile-time safety |
+| Database | `DECIMAL(10,2)` for amounts, `DECIMAL(12,4)` for quantities, `CHECK` constraints |
+| Service | `Decimal.js` with `ROUND_HALF_EVEN` (Banker's Rounding) |
+| Ledger | `DECIMAL(10,4)` for running balance, `TIMESTAMP(3)` for ms precision |
+| Reconciliation | `reconcileLedger()` proves `SUM(charges) - SUM(payments) == running_balance` |
 | API | Numbers serialized as JSON after rounding to 2 decimal places |
 
 **Why this matters**: In a billing system processing thousands of transactions,
 floating-point rounding errors accumulate. A $0.01 error per transaction across
 100,000 transactions = $1,000 discrepancy.
+
+## Data Integrity — Defense-in-Depth
+
+```
+Layer 1: Compile-Time    │ Branded types (Cents, Money, UserId, BillId)
+Layer 2: Input Validation │ express-validator + CDR validation rules
+Layer 3: Decimal.js       │ ROUND_HALF_EVEN, precision: 20, no floats
+Layer 4: DB Constraints   │ CHECK (amount >= 0), NOT NULL, FOREIGN KEY
+Layer 5: Reconciliation   │ reconcileLedger() — prove every cent on demand
+```
+
+### CHECK Constraints (Database-Level Invariants)
+
+```sql
+-- No negative/zero usage
+quantity DECIMAL(12,4) NOT NULL CHECK (quantity > 0)
+
+-- No negative rates
+rate DECIMAL(10,4) NOT NULL CHECK (rate >= 0)
+
+-- No negative bill amounts
+amount DECIMAL(10,2) NOT NULL CHECK (amount >= 0)
+
+-- Every ledger entry must have a positive amount
+amount DECIMAL(10,4) NOT NULL CHECK (amount > 0)
+
+-- Billing period must be logically valid
+CHECK (period_end >= period_start)
+```
+
+### Reconciliation Endpoint
+
+```
+GET /billing/reconcile/:userId    (Admin only)
+
+Response:
+{
+  "isConsistent": true,
+  "ledgerBalance": 250.00,
+  "recomputedBalance": 250.00,
+  "totalCharges": 400.00,
+  "totalPayments": 150.00,
+  "unpaidBillsTotal": 250.00,
+  "discrepancy": 0
+}
+```
+
+Uses a transactional snapshot (REPEATABLE READ) to prevent read skew during verification.

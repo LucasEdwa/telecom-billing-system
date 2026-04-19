@@ -27,8 +27,8 @@ export class User {
       CREATE TABLE IF NOT EXISTS user_logs (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
-        type ENUM('CALL', 'SMS', 'DATA'),
-        quantity DECIMAL(12,4) NOT NULL,
+        type ENUM('CALL', 'SMS', 'DATA') NOT NULL,
+        quantity DECIMAL(12,4) NOT NULL CHECK (quantity > 0),
         idempotency_key VARCHAR(64) DEFAULT NULL,
         billed BOOLEAN DEFAULT FALSE,
         bill_id INT DEFAULT NULL,
@@ -44,21 +44,23 @@ export class User {
       CREATE TABLE IF NOT EXISTS service_rates (
         id INT AUTO_INCREMENT PRIMARY KEY,
         service ENUM('CALL', 'SMS', 'DATA') UNIQUE NOT NULL,
-        rate DECIMAL(10,2) NOT NULL
+        rate DECIMAL(10,4) NOT NULL CHECK (rate >= 0)
       );
     `);
     await pool.query(`
       CREATE TABLE IF NOT EXISTS bills (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
-        amount DECIMAL(10,2) NOT NULL,
+        amount DECIMAL(10,2) NOT NULL CHECK (amount >= 0),
         period_start DATE NOT NULL,
         period_end DATE NOT NULL,
-        status ENUM('PAID', 'UNPAID') DEFAULT 'UNPAID',
+        status ENUM('PAID', 'UNPAID') NOT NULL DEFAULT 'UNPAID',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_user_status (user_id, status),
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        INDEX idx_created (user_id, created_at),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        CHECK (period_end >= period_start)
       );
     `);
     await pool.query(`
@@ -73,15 +75,15 @@ export class User {
       );
     `);
 
-    // Audit Ledger: every financial event is an immutable, append-only row.
-    // This is the single source of truth for money movement.
+    // Audit Ledger: immutable, append-only financial record. Every cent is traceable.
+    // CHECK constraints enforce: amounts are positive, balances are computed, types are valid.
     await pool.query(`
       CREATE TABLE IF NOT EXISTS ledger (
         id BIGINT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
         bill_id INT DEFAULT NULL,
         type ENUM('CHARGE', 'PAYMENT', 'ADJUSTMENT', 'REFUND') NOT NULL,
-        amount DECIMAL(10,4) NOT NULL,
+        amount DECIMAL(10,4) NOT NULL CHECK (amount > 0),
         balance_after DECIMAL(10,4) NOT NULL,
         description VARCHAR(255) NOT NULL,
         reference_id VARCHAR(64) DEFAULT NULL,
@@ -94,8 +96,8 @@ export class User {
       );
     `);
 
-    // Dead Letter Queue: malformed or failed CDRs land here for manual review
-    // instead of being silently dropped.
+    // Dead Letter Queue: malformed or failed CDRs land here for manual review.
+    // No data is silently dropped — every failed ingestion is recoverable.
     await pool.query(`
       CREATE TABLE IF NOT EXISTS dead_letter_queue (
         id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -103,8 +105,8 @@ export class User {
         raw_payload JSON NOT NULL,
         error_message VARCHAR(500) NOT NULL,
         error_code VARCHAR(50) DEFAULT NULL,
-        retry_count INT DEFAULT 0,
-        status ENUM('PENDING', 'RETRIED', 'RESOLVED', 'DISCARDED') DEFAULT 'PENDING',
+        retry_count INT NOT NULL DEFAULT 0 CHECK (retry_count >= 0),
+        status ENUM('PENDING', 'RETRIED', 'RESOLVED', 'DISCARDED') NOT NULL DEFAULT 'PENDING',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         resolved_at TIMESTAMP NULL,
         resolved_by INT DEFAULT NULL,

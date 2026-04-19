@@ -471,6 +471,148 @@ describe('BillingService', () => {
       expect(result.currentBalance).toBe(0);
     });
   });
+
+  describe('reconcileLedger (integrity verification)', () => {
+    it('should report consistent when ledger balance matches recomputed sum', async () => {
+      mockQuery
+        .mockResolvedValueOnce([[{ balance_after: '100.0000' }]])  // last entry
+        .mockResolvedValueOnce([[{ total_charges: '150.0000', total_payments: '50.0000' }]])  // totals
+        .mockResolvedValueOnce([[{ unpaid_total: '100.00' }]]);   // unpaid bills
+
+      const result = await service.reconcileLedger(1);
+
+      expect(result.isConsistent).toBe(true);
+      expect(result.discrepancy).toBe(0);
+      expect(result.ledgerBalance).toBe(100);
+      expect(result.recomputedBalance).toBe(100);
+      expect(result.totalCharges).toBe(150);
+      expect(result.totalPayments).toBe(50);
+    });
+
+    it('should detect discrepancy when ledger balance does not match', async () => {
+      // Simulate corruption: stored balance says 100, but charges - payments = 95
+      mockQuery
+        .mockResolvedValueOnce([[{ balance_after: '100.0000' }]])
+        .mockResolvedValueOnce([[{ total_charges: '145.0000', total_payments: '50.0000' }]])
+        .mockResolvedValueOnce([[{ unpaid_total: '95.00' }]]);
+
+      const result = await service.reconcileLedger(1);
+
+      expect(result.isConsistent).toBe(false);
+      expect(result.discrepancy).toBe(5);
+      expect(result.ledgerBalance).toBe(100);
+      expect(result.recomputedBalance).toBe(95);
+    });
+
+    it('should handle user with no ledger entries', async () => {
+      mockQuery
+        .mockResolvedValueOnce([[]])  // no entries
+        .mockResolvedValueOnce([[{ total_charges: '0', total_payments: '0' }]])
+        .mockResolvedValueOnce([[{ unpaid_total: '0' }]]);
+
+      const result = await service.reconcileLedger(1);
+
+      expect(result.isConsistent).toBe(true);
+      expect(result.ledgerBalance).toBe(0);
+      expect(result.recomputedBalance).toBe(0);
+    });
+
+    it('should use transaction for snapshot consistency', async () => {
+      mockQuery
+        .mockResolvedValueOnce([[{ balance_after: '50.0000' }]])
+        .mockResolvedValueOnce([[{ total_charges: '50.0000', total_payments: '0' }]])
+        .mockResolvedValueOnce([[{ unpaid_total: '50.00' }]]);
+
+      await service.reconcileLedger(1);
+
+      expect(mockBeginTransaction).toHaveBeenCalled();
+      expect(mockCommit).toHaveBeenCalled();
+    });
+
+    it('should rollback on error and release connection', async () => {
+      mockQuery.mockRejectedValueOnce(new Error('DB down'));
+
+      await expect(service.reconcileLedger(1)).rejects.toThrow();
+      expect(mockRollback).toHaveBeenCalled();
+      expect(mockRelease).toHaveBeenCalled();
+    });
+  });
+
+  describe('searchBills', () => {
+    it('should search bills with date range filter', async () => {
+      mockQuery
+        .mockResolvedValueOnce([[{ total: 2 }]])
+        .mockResolvedValueOnce([[
+          { id: 1, amount: '50.00', status: 'UNPAID' },
+          { id: 2, amount: '75.00', status: 'PAID' },
+        ]]);
+
+      const result = await service.searchBills({
+        startDate: '2024-01-01',
+        endDate: '2024-12-31'
+      });
+
+      expect(result.total).toBe(2);
+      expect(result.bills).toHaveLength(2);
+    });
+
+    it('should search bills with amount range filter', async () => {
+      mockQuery
+        .mockResolvedValueOnce([[{ total: 1 }]])
+        .mockResolvedValueOnce([[{ id: 3, amount: '100.00', status: 'UNPAID' }]]);
+
+      const result = await service.searchBills({
+        minAmount: 50,
+        maxAmount: 200
+      });
+
+      expect(result.total).toBe(1);
+      const countQuery = mockQuery.mock.calls[0][0];
+      expect(countQuery).toContain('amount >= ?');
+      expect(countQuery).toContain('amount <= ?');
+    });
+
+    it('should combine multiple filters with AND', async () => {
+      mockQuery
+        .mockResolvedValueOnce([[{ total: 0 }]])
+        .mockResolvedValueOnce([[]]);
+
+      await service.searchBills({
+        userId: 1,
+        status: 'PAID',
+        minAmount: 10,
+        startDate: '2024-06-01'
+      });
+
+      const countQuery = mockQuery.mock.calls[0][0];
+      expect(countQuery).toContain('user_id = ?');
+      expect(countQuery).toContain('status = ?');
+      expect(countQuery).toContain('amount >= ?');
+      expect(countQuery).toContain('created_at >= ?');
+    });
+
+    it('should return hasMore when results exceed page size', async () => {
+      mockQuery
+        .mockResolvedValueOnce([[{ total: 50 }]])
+        .mockResolvedValueOnce([Array(20).fill({ id: 1, amount: '10.00' })]);
+
+      const result = await service.searchBills({}, 1, 20);
+
+      expect(result.hasMore).toBe(true);
+    });
+
+    it('should return empty results for no matches', async () => {
+      mockQuery
+        .mockResolvedValueOnce([[{ total: 0 }]])
+        .mockResolvedValueOnce([[]]);
+
+      const result = await service.searchBills({ userId: 999 });
+
+      expect(result.total).toBe(0);
+      expect(result.bills).toHaveLength(0);
+      expect(result.hasMore).toBe(false);
+    });
+  });
 });
 
 describe('Banker\'s Rounding (ROUND_HALF_EVEN)', () => {

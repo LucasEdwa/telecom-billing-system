@@ -1,5 +1,5 @@
 import express from 'express';
-import { generateBill, getBills, payBill, getBillDetails, getLedger, getDLQ, resolveDLQ, discardDLQ } from '../controllers/billingController';
+import { generateBill, getBills, payBill, getBillDetails, getLedger, getDLQ, resolveDLQ, discardDLQ, reconcile, searchBills } from '../controllers/billingController';
 import { authenticate } from '../middleware/auth';
 import { billingRateLimit } from '../middleware/security';
 import { requireRole as authorizeRole } from '../middleware/role';
@@ -256,5 +256,82 @@ router.put('/dlq/:dlqId/resolve', authorizeRole('ADMIN'), resolveDLQ);
  *         description: DLQ item discarded
  */
 router.put('/dlq/:dlqId/discard', authorizeRole('ADMIN'), discardDLQ);
+
+// ─── Reconciliation (Integrity Verification) ───────────────────────────────
+
+/**
+ * @swagger
+ * /billing/reconcile/{userId}:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Verify ledger integrity — proves every cent is accounted for
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Reconciliation passed — ledger is consistent
+ *       409:
+ *         description: Discrepancy detected — manual audit required
+ */
+router.get('/reconcile/:userId',
+  authorizeRole('ADMIN'),
+  validateUserId,
+  handleValidationErrors,
+  reconcile
+);
+
+// ─── Bill Search ────────────────────────────────────────────────────────────
+
+/**
+ * @swagger
+ * /billing/search:
+ *   get:
+ *     tags: [Billing]
+ *     summary: Search bills with flexible filters (date range, amount range, status)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: userId
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [PAID, UNPAID]
+ *       - in: query
+ *         name: minAmount
+ *         schema:
+ *           type: number
+ *       - in: query
+ *         name: maxAmount
+ *         schema:
+ *           type: number
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *     responses:
+ *       200:
+ *         description: Filtered list of bills with pagination
+ */
+router.get('/search',
+  validatePagination,
+  handleValidationErrors,
+  searchBills
+);
 
 export default router;

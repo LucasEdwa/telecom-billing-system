@@ -161,3 +161,53 @@ export const discardDLQ = asyncHandler(async (req: Request, res: Response) => {
   });
 });
 
+// ─── Reconciliation (Integrity Verification) ───────────────────────────────
+
+export const reconcile = asyncHandler(async (req: Request, res: Response) => {
+  const userId = parseInt(req.params.userId);
+
+  const result = await billingService.reconcileLedger(userId);
+
+  const response: ApiResponse = {
+    success: true,
+    data: result,
+    message: result.isConsistent
+      ? 'Ledger is consistent — every cent accounted for'
+      : 'DISCREPANCY DETECTED — manual audit required'
+  };
+
+  res.status(result.isConsistent ? 200 : 409).json(response);
+});
+
+// ─── Bill Search ────────────────────────────────────────────────────────────
+
+export const searchBills = asyncHandler(async (req: Request, res: Response) => {
+  const page = parseInt(req.query.page as string) || 1;
+  const limit = parseInt(req.query.limit as string) || 20;
+  const filters = {
+    userId: req.query.userId ? parseInt(req.query.userId as string) : undefined,
+    status: req.query.status as 'PAID' | 'UNPAID' | undefined,
+    minAmount: req.query.minAmount ? parseFloat(req.query.minAmount as string) : undefined,
+    maxAmount: req.query.maxAmount ? parseFloat(req.query.maxAmount as string) : undefined,
+    startDate: req.query.startDate as string | undefined,
+    endDate: req.query.endDate as string | undefined,
+  };
+
+  const result = await billingService.searchBills(filters, page, limit);
+
+  const response: ApiResponse = {
+    success: true,
+    data: {
+      bills: result.bills,
+      pagination: {
+        page,
+        limit,
+        total: result.total,
+        hasMore: result.hasMore,
+        totalPages: Math.ceil(result.total / limit)
+      }
+    }
+  };
+
+  res.json(response);
+});
