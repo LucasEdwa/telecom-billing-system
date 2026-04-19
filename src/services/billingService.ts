@@ -2,6 +2,10 @@ import { pool } from '../database/connection';
 import { logger } from '../utils/logger';
 import { BillCalculation, Bill, UsageDetail } from '../types';
 import { dbError, billingError, notFoundError } from '../errors/AppError';
+import Decimal from 'decimal.js';
+
+// Configure Decimal.js for financial precision
+Decimal.set({ precision: 20, rounding: Decimal.ROUND_HALF_UP });
 
 export class BillingService {
   async calculateBill(userId: string): Promise<BillCalculation> {
@@ -24,22 +28,27 @@ export class BillingService {
         'SELECT service, rate FROM service_rates'
       );
 
-      const rateMap: Record<string, number> = {};
-      rates.forEach((r: any) => (rateMap[r.service] = Number(r.rate)));
+      const rateMap: Record<string, Decimal> = {};
+      rates.forEach((r: any) => (rateMap[r.service] = new Decimal(r.rate)));
 
-      // Calculate detailed billing
+      // Calculate detailed billing using Decimal.js to avoid floating-point errors
       const details: UsageDetail[] = logs.map((log: any) => {
-        const rate = rateMap[log.type] || 0;
-        const cost = Number(log.total) * rate;
+        const rate = rateMap[log.type] || new Decimal(0);
+        const quantity = new Decimal(log.total);
+        const cost = quantity.mul(rate);
         return {
           type: log.type,
-          total: Number(log.total),
-          rate,
-          cost
+          total: quantity.toNumber(),
+          rate: rate.toNumber(),
+          cost: cost.toDecimalPlaces(2).toNumber()
         };
       });
 
-      const total = details.reduce((sum, detail) => sum + detail.cost, 0);
+      const total = details.reduce(
+        (sum, detail) => sum.plus(new Decimal(detail.cost)),
+        new Decimal(0)
+      ).toDecimalPlaces(2).toNumber();
+
       const periodEnd = new Date();
       const periodStart = new Date(periodEnd.getTime() - 30 * 24 * 60 * 60 * 1000); // 30 days ago
 

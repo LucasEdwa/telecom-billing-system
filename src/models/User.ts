@@ -28,8 +28,12 @@ export class User {
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
         type ENUM('CALL', 'SMS', 'DATA'),
-        quantity DECIMAL,
+        quantity DECIMAL(12,4) NOT NULL,
+        idempotency_key VARCHAR(64) DEFAULT NULL,
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_idempotency (idempotency_key),
+        INDEX idx_user_id (user_id),
+        INDEX idx_user_timestamp (user_id, timestamp),
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       );
     `);
@@ -49,6 +53,8 @@ export class User {
         period_end DATE NOT NULL,
         status ENUM('PAID', 'UNPAID') DEFAULT 'UNPAID',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_user_status (user_id, status),
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       );
     `);

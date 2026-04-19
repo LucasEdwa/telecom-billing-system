@@ -1,157 +1,210 @@
 # Telecom Billing System
 
-## 1. Project Description
+A production-grade backend system for calculating and managing telecom bills based on user activity (calls, SMS, data usage). Built with Node.js, TypeScript, Express, and MySQL.
 
-A backend system to calculate and manage telecom bills based on user activity (calls, SMS, data usage).
+## Key Features
 
-**Key Capabilities:**
-- User account creation and authentication
-- Logging of calls, SMS, and data usage
-- Bill generation based on usage and configurable rates
-- Role-based access for administrators (e.g., update rates, view summaries)
+- **Mediation Engine**: Ingests Call Detail Records (CDRs) with idempotency protection to prevent duplicate charges on retries
+- **Rating Engine**: Applies configurable per-service rates to aggregated usage using **Decimal.js** for financial precision (avoids IEEE 754 floating-point errors)
+- **Invoice Generation**: Automated bill calculation with period-based aggregation and state management (UNPAID → PAID)
+- **Authentication & Security**: JWT auth, role-based access (admin/user), rate limiting, brute-force protection, Helmet security headers, input sanitization
+- **Stripe Integration**: Optional payment processing via Stripe Payment Intents
+- **API Documentation**: Auto-generated Swagger/OpenAPI docs at `/api-docs`
 
----
+## Architecture
 
-## 2. Tech Stack
+```
+Client → Security Layer → Controller → Service (Decimal.js) → MySQL
+```
 
-- **Backend:** Node.js (Express.js or NestJS)
-- **Database:** PostgreSQL (relational data)
-- **Authentication:** JSON Web Tokens (JWT)
-- **Optional Payments:** Stripe or PayPal
+The system follows a **layered architecture** (Controller → Service → Database) with clear separation of concerns. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full data flow diagrams, ERD, and deployment architecture.
 
----
+### Monetary Precision
 
-## 3. Core Features
+All monetary calculations use `Decimal.js` instead of native JavaScript `Number` to prevent rounding errors. In a billing system, `0.1 + 0.2` must equal `0.30`, not `0.30000000000000004`.
 
-### a) User Management
-- **Endpoints:**
-  - `POST /users/signup` — Register user
-  - `POST /users/login` — Authenticate user, return JWT
-  - `GET /users/:id` — Get user profile (auth required)
-- **Fields:** Name, email, hashed password, account type (admin/user)
+| Layer | Strategy |
+|-------|----------|
+| Database | `DECIMAL(10,2)` for amounts, `DECIMAL(12,4)` for quantities |
+| Service | `Decimal.js` with `ROUND_HALF_UP` |
+| API | Rounded to 2 decimal places before serialization |
 
-### b) Usage Logging
-- **Endpoints:**
-  - `POST /usage/calls` — Log call duration
-  - `POST /usage/sms` — Log SMS count
-  - `POST /usage/data` — Log data usage
-- **Schema Example:**
-  ```sql
-  CREATE TABLE usage_logs (
-    id SERIAL PRIMARY KEY,
-    user_id INT REFERENCES users(id),
-    type ENUM('CALL', 'SMS', 'DATA'),
-    quantity DECIMAL,
-    timestamp TIMESTAMP DEFAULT NOW()
-  );
-  ```
+### Idempotency
 
-### c) Billing System
-- **Rates:** Call: $0.05/min, SMS: $0.01/msg, Data: $0.10/MB
-- **Endpoint:** `GET /billing/:userId` — Generate bill for user (auth required)
-- **Logic:** Aggregate usage per billing cycle and apply rates
-
-### d) Role-Based Access
-- Admins can update rates and fetch all user summaries
-- Middleware verifies user roles
-
-### e) Optional Features
-- Notifications for pending bills (email/SMS)
-- Real-time usage tracking (WebSocket)
+Every usage log (CDR) accepts an optional `idempotencyKey`. If a request is retried with the same key (e.g., due to network failure), the duplicate is silently ignored — preventing double-charging customers.
 
 ---
 
-## 4. API Example
+## Quick Start
 
-```javascript
-const express = require('express');
-const app = express();
-app.use(express.json());
+### Prerequisites
 
-const authenticate = (req, res, next) => {
-  // Validate JWT and set req.user
-  next();
-};
+- Node.js 18+
+- MySQL 8+ (or Docker)
 
-app.post('/usage/calls', authenticate, (req, res) => {
-  // Save call log to database
-  res.status(201).send({ message: 'Call log saved' });
-});
+### 1. Clone & Install
 
-app.get('/billing/:userId', authenticate, async (req, res) => {
-  // Aggregate usage and calculate bill
-  const bill = await calculateBill(req.params.userId);
-  res.send(bill);
-});
+```bash
+git clone <repo-url>
+cd telecom-billing-system
+npm install
+```
 
-app.listen(3000, () => console.log('Server running on port 3000'));
+### 2. Configure Environment
+
+```bash
+cp .env.example .env
+# Edit .env with your database credentials and JWT secret
+```
+
+Required variables:
+```
+DB_HOST=localhost
+DB_PORT=3306
+DB_USERNAME=root
+DB_PASSWORD=your_password
+DB_DATABASE=telecomdb
+JWT_SECRET=your_jwt_secret
+```
+
+### 3. Run with Docker (Recommended)
+
+```bash
+docker-compose up
+```
+
+This starts both the app (port 3000) and MySQL (port 8889). Tables are auto-created on first boot.
+
+### 4. Run Locally (Without Docker)
+
+```bash
+npm run dev        # Development with hot-reload
+npm run build      # Compile TypeScript
+npm start          # Production mode
+```
+
+### 5. Open API Docs
+
+Navigate to `http://localhost:3000/api-docs` for the interactive Swagger UI.
+
+---
+
+## API Overview
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| `POST` | `/users/signup` | — | Register a new user |
+| `POST` | `/users/login` | — | Authenticate and get JWT |
+| `GET`  | `/users/profile/:id` | JWT | Get user profile |
+| `POST` | `/usage/calls` | JWT | Log call duration (CDR) |
+| `POST` | `/usage/sms` | JWT | Log SMS count (CDR) |
+| `POST` | `/usage/data` | JWT | Log data usage in MB (CDR) |
+| `POST` | `/billing/generate/:userId` | JWT | Generate bill for billing period |
+| `GET`  | `/billing/user/:userId` | JWT | List bills (paginated, filterable) |
+| `POST` | `/billing/pay` | JWT | Mark bill as paid |
+| `GET`  | `/billing/:billId` | JWT | Get bill details |
+| `PUT`  | `/rates/:service` | JWT + API Key | Update service rate (admin) |
+| `GET`  | `/rates/:service` | JWT + API Key | Get service rates (admin) |
+
+### Example: Log a Call with Idempotency
+
+```bash
+curl -X POST http://localhost:3000/usage/calls \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": 1,
+    "duration": 300,
+    "idempotencyKey": "call-2026-04-19-abc123"
+  }'
 ```
 
 ---
 
-## 5. Deployment
+## Testing
 
-- Containerize with Docker
-- Deploy on AWS, Heroku, or similar
-- Use Postman for API documentation/testing
-
----
-
-## 6. Getting Started
-
-1. Install dependencies: `npm install`
-2. Configure `.env` with DB and JWT settings
-3. Start dev server: `npm run dev`
-4. Test endpoints with Postman
-
----
-
-## 7. Project Structure
-
-```
-/src
-  /controllers
-    - userController.ts
-    - usageController.ts
-    - billingController.ts
-    - rateController.ts
-  /middleware
-    - auth.ts
-    - role.ts
-  /models
-    - User.ts
-    - UsageLog.ts
-    - Bill.ts
-    - ServiceRate.ts
-  /routes
-    - userRoutes.ts
-    - usageRoutes.ts
-    - billingRoutes.ts
-    - rateRoutes.ts
-  /database
-    - connection.ts
-  index.ts
+```bash
+npm test              # Run all tests
+npm run test:watch    # Watch mode
+npx jest --coverage   # Generate coverage report
 ```
 
+Test suites cover:
+- **BillingService**: Decimal precision, rate calculation, edge cases (zero usage, missing rates, large values), transaction rollback
+- **UsageController**: Idempotency dedup, input validation, error handling
+- **BillingController**: Request/response flow, pagination
+
 ---
 
-## 8. Example Route (TypeScript)
+## Project Structure
 
-```typescript
-// src/routes/userRoutes.ts
-import express from 'express';
-import { signup, login, getProfile } from '../controllers/userController';
-import { authenticate } from '../middleware/auth';
-const router = express.Router();
-
-router.post('/signup', signup);
-router.post('/login', login);
-router.get('/:id', authenticate, getProfile);
-
-export default router;
+```
+src/
+├── controllers/       # HTTP request handlers (thin layer)
+│   ├── billingController.ts
+│   ├── rateController.ts
+│   ├── stripeController.ts
+│   ├── usageController.ts
+│   └── userController.ts
+├── services/          # Business logic (billing engine)
+│   └── billingService.ts
+├── models/            # Database schema definitions
+│   └── User.ts
+├── routes/            # Express route definitions + Swagger docs
+├── middleware/        # Auth, error handling, security, roles
+├── database/          # Connection pool configuration
+├── errors/            # Custom error classes (AppError)
+├── types/             # TypeScript interfaces
+├── utils/             # Logger, validation helpers
+├── index.ts           # App entry point
+└── swagger.ts         # Swagger schema definitions
+docs/
+└── ARCHITECTURE.md    # System diagrams (data flow, ERD, deployment)
+tests/
+├── controllers/       # Controller unit tests
+└── services/          # Service unit tests (billing precision)
+k8s/                   # Kubernetes manifests (deployment, HPA, ingress)
 ```
 
 ---
+
+## Deployment
+
+### Docker
+
+```bash
+docker build -t telecom-billing .
+docker-compose up -d
+```
+
+### Kubernetes
+
+```bash
+cd k8s && ./deploy.sh
+```
+
+See [GOOGLE_CLOUD_DEPLOYMENT.md](GOOGLE_CLOUD_DEPLOYMENT.md) for GCP Cloud Run / GKE deployment guide.
+
+---
+
+## Tech Stack
+
+| Component | Technology |
+|-----------|-----------|
+| Runtime | Node.js 18 |
+| Language | TypeScript 5 |
+| Framework | Express 5 |
+| Database | MySQL 8 |
+| Auth | JWT (jsonwebtoken) |
+| Payments | Stripe SDK |
+| Precision | Decimal.js |
+| Logging | Winston |
+| Security | Helmet, express-rate-limit |
+| Validation | express-validator |
+| Docs | Swagger/OpenAPI 3.0 |
+| Testing | Jest, Supertest |
+| Container | Docker, Kubernetes |
+| CI/CD | GitHub Actions |
 
 
 
