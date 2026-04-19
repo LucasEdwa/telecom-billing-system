@@ -64,7 +64,7 @@ describe('UsageController', () => {
       const req = { body: { duration: 300 } } as Request;
       const res = mockRes();
 
-      await expect(logCall(req, res)).rejects.toThrow('userId and duration are required');
+      await expect(logCall(req, res)).rejects.toThrow('userId is required');
     });
 
     it('should reject non-positive duration', async () => {
@@ -100,7 +100,7 @@ describe('UsageController', () => {
       const req = { body: { userId: 1 } } as Request;
       const res = mockRes();
 
-      await expect(logSMS(req, res)).rejects.toThrow('userId and count are required');
+      await expect(logSMS(req, res)).rejects.toThrow('count is required');
     });
 
     it('should reject non-positive count', async () => {

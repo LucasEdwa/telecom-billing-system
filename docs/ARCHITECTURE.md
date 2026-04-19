@@ -42,20 +42,38 @@
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                     BillingService                                │   │
 │  │                                                                   │   │
-│  │  calculateBill()  ──► Mediation: Aggregate CDRs by type          │   │
-│  │                   ──► Rating:    Apply rates with Decimal.js      │   │
-│  │                   ──► Invoice:   Sum totals with precision        │   │
+│  │  calculateBill()  ──► Query only unbilled CDRs (billed=FALSE)    │   │
+│  │                   ──► Aggregate by type with Decimal.js           │   │
+│  │                   ──► Banker's Rounding (ROUND_HALF_EVEN)         │   │
+│  │                   ──► Return logIds for atomic marking            │   │
 │  │                                                                   │   │
-│  │  createBill()     ──► Persist invoice to bills table              │   │
-│  │  payBill()        ──► Transition: UNPAID → PAID                   │   │
-│  │  getBillsByUserId() ─► Paginated bill retrieval                   │   │
+│  │  createBill()     ──► ATOMIC TRANSACTION:                         │   │
+│  │                       1. INSERT bill                              │   │
+│  │                       2. UPDATE CDRs SET billed=TRUE              │   │
+│  │                       3. INSERT ledger CHARGE entry               │   │
+│  │                                                                   │   │
+│  │  payBill()        ──► SELECT FOR UPDATE (lock) → PAID             │   │
+│  │                   ──► INSERT ledger PAYMENT entry                  │   │
+│  │                                                                   │   │
+│  │  getLedger()      ──► Read immutable audit trail                   │   │
+│  └──────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+│  ┌──────────────────────────────────────────────────────────────────┐   │
+│  │                    DeadLetterService                               │   │
+│  │                                                                   │   │
+│  │  enqueue()        ──► Persist failed CDR with error context       │   │
+│  │  getPending()     ──► Admin: view PENDING items                   │   │
+│  │  resolve()        ──► Mark as RESOLVED after review               │   │
+│  │  discard()        ──► Mark as DISCARDED (invalid data)            │   │
 │  └──────────────────────────────────────────────────────────────────┘   │
 │                                                                         │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │              Idempotency Layer (Usage Controller)                 │   │
 │  │                                                                   │   │
-│  │  INSERT IGNORE with idempotency_key                               │   │
-│  │  Prevents duplicate CDR processing on retries                     │   │
+│  │  Validate CDR ──► Valid?  ──YES──► INSERT IGNORE with key         │   │
+│  │                   │                                               │   │
+│  │                   NO ──► DeadLetterService.enqueue()              │   │
+│  │                      ──► Return validation error                  │   │
 │  └──────────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────┘
           │
@@ -80,24 +98,26 @@
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Billing Pipeline (Mediation → Rating → Invoicing)
+## Billing Pipeline (Mediation → Rating → Invoicing → Ledger)
 
 ```
-  Raw CDR Input                 Mediation                   Rating                  Invoicing
-  ─────────────                 ─────────                   ──────                  ─────────
+  Raw CDR Input                 Mediation                   Rating                  Invoicing (Atomic)
+  ─────────────                 ─────────                   ──────                  ──────────────────
 
-  POST /usage/calls     ──►  Validate & Store      ──►  calculateBill()     ──►  createBill()
-  POST /usage/sms            with idempotency            │                       │
-  POST /usage/data           key (INSERT IGNORE)         │ 1. Aggregate CDRs     │ 1. Check total > 0
-                                                         │    by type (GROUP BY) │ 2. INSERT into bills
-                             ┌──────────────────┐        │ 2. Fetch rates        │ 3. Return billId
-                             │ Dedup Check:      │        │ 3. Multiply with      │
-                             │ If idempotency_key│        │    Decimal.js         │ ┌──────────────┐
-                             │ exists → 200 OK   │        │ 4. Sum all costs      │ │ State Machine│
-                             │ (no duplicate)     │        │    (precise)          │ │              │
-                             └──────────────────┘        └─────────────────┘     │ UNPAID → PAID │
-                                                                                  │ (via payBill) │
-                                                                                  └──────────────┘
+  POST /usage/calls     ──►  Validate CDR          ──►  calculateBill()     ──►  createBill() [TRANSACTION]
+  POST /usage/sms            │                           │                       │
+  POST /usage/data           ├─ Valid? ── YES ─►         │ 1. Query unbilled     │ 1. INSERT bill
+                             │    INSERT IGNORE           │    CDRs (billed=FALSE)│ 2. UPDATE CDRs billed=TRUE
+                             │    with idempotency_key    │ 2. Aggregate by type  │ 3. INSERT ledger CHARGE
+                             │                           │ 3. Apply rates with   │    (running balance)
+                             ├─ Invalid? ── NO ─►        │    Decimal.js         │ 4. COMMIT (all or nothing)
+                             │    DLQ.enqueue()           │ 4. Banker's Rounding  │
+                             │    Return error            │ 5. Return logIds      │ payBill()
+                             │                           └─────────────────┘     │ 1. SELECT FOR UPDATE (lock)
+                             ├─ Duplicate?                                        │ 2. UPDATE status = PAID
+                             │    200 OK (idempotent)                             │ 3. INSERT ledger PAYMENT
+                             │                                                    │ 4. COMMIT
+                             └──────────────────                                  └──────────────────
 ```
 
 ## Database Schema (ERD)
@@ -111,9 +131,12 @@
 │ email VARCHAR(100) UQ │◄──┐  │ type ENUM(CALL,SMS,DATA)     │
 │ password VARCHAR(255) │   │  │ quantity DECIMAL(12,4)        │
 │ account_type ENUM     │   │  │ idempotency_key VARCHAR(64) UQ│
-│ created_at TIMESTAMP  │   ├──┤ timestamp TIMESTAMP           │
-│ updated_at TIMESTAMP  │   │  └──────────────────────────────┘
-└──────────────────────┘   │
+│ created_at TIMESTAMP  │   │  │ billed BOOLEAN DEFAULT FALSE  │
+│ updated_at TIMESTAMP  │   │  │ bill_id INT FK → bills.id     │
+└──────────────────────┘   │  │ timestamp TIMESTAMP           │
+                            │  │ INDEX idx_unbilled            │
+                            │  └──────────────────────────────┘
+                            │
                             │  ┌──────────────────────────────┐
                             │  │           bills               │
                             │  ├──────────────────────────────┤
@@ -125,6 +148,38 @@
                             │  │ status ENUM(PAID,UNPAID)      │
                             │  │ created_at TIMESTAMP          │
                             │  │ updated_at TIMESTAMP          │
+                            │  └──────────────┬───────────────┘
+                            │                 │
+                            │  ┌──────────────▼───────────────┐
+                            │  │     ledger (Audit Trail)      │
+                            │  ├──────────────────────────────┤
+                            │  │ id BIGINT PK                 │
+                            ├──┤ user_id INT FK → users.id    │
+                            │  │ bill_id INT FK → bills.id     │
+                            │  │ type ENUM(CHARGE,PAYMENT,     │
+                            │  │      ADJUSTMENT,REFUND)       │
+                            │  │ amount DECIMAL(10,4)           │
+                            │  │ balance_after DECIMAL(10,4)    │
+                            │  │ description TEXT               │
+                            │  │ reference_id VARCHAR(100)      │
+                            │  │ created_at TIMESTAMP(3) [ms]   │
+                            │  └──────────────────────────────┘
+                            │
+                            │  ┌──────────────────────────────┐
+                            │  │    dead_letter_queue (DLQ)    │
+                            │  ├──────────────────────────────┤
+                            │  │ id BIGINT PK                 │
+                            │  │ source_type ENUM(CALL,SMS,    │
+                            │  │     DATA,UNKNOWN)             │
+                            │  │ raw_payload JSON              │
+                            │  │ error_message TEXT             │
+                            │  │ error_code VARCHAR(50)         │
+                            │  │ retry_count INT DEFAULT 0     │
+                            │  │ status ENUM(PENDING,RETRIED,  │
+                            │  │     RESOLVED,DISCARDED)       │
+                            │  │ created_at TIMESTAMP           │
+                            │  │ resolved_at TIMESTAMP          │
+                            │  │ resolved_by INT                │
                             │  └──────────────────────────────┘
                             │
                             │  ┌──────────────────────────────┐
@@ -197,6 +252,88 @@ Request ──► Helmet ──► Rate Limiter ──► Body Parser ──► 
     │  (Cloud SQL or    │
     │   containerized)  │
     └──────────────────┘
+```
+
+## Audit Trail (Ledger) Flow
+
+```
+  Every financial event writes an immutable ledger entry:
+
+  Bill Created ($25.50)                    Payment Received ($25.50)
+  ─────────────────────                    ────────────────────────
+
+  ┌──────────────────────────────┐         ┌──────────────────────────────┐
+  │ type:          CHARGE        │         │ type:          PAYMENT       │
+  │ amount:        25.5000       │         │ amount:        25.5000       │
+  │ balance_after: 25.5000       │         │ balance_after: 0.0000        │
+  │ reference_id:  BILL-42       │         │ reference_id:  PAY-42        │
+  │ description:   Bill #42:     │         │ description:   Payment for   │
+  │   CALL=$16.65, SMS=$8.85     │         │   Bill #42                   │
+  │ created_at:    (ms precision)│         │ created_at:    (ms precision)│
+  └──────────────────────────────┘         └──────────────────────────────┘
+
+  The ledger is APPEND-ONLY — entries are never updated or deleted.
+  Running balance is computed at write time and verifiable at read time.
+  TIMESTAMP(3) provides millisecond precision for audit ordering.
+```
+
+## Dead Letter Queue (DLQ) Flow
+
+```
+  CDR Ingestion                                    Admin Review
+  ──────────────                                   ────────────
+
+  POST /usage/calls ──► validateCDR() ──FAIL──►  dead_letter_queue
+       { userId: "abc",                           ┌─────────────────┐
+         duration: -5 }                           │ PENDING          │
+                                                  │ raw_payload: ... │
+                                                  │ error: "duration │
+                                                  │  must be positive"│
+                                                  └────────┬────────┘
+                                                           │
+                                             ┌─────────────┼──────────────┐
+                                             │             │              │
+                                             ▼             ▼              ▼
+                                         GET /dlq     PUT /dlq/:id    PUT /dlq/:id
+                                         (list all)   /resolve        /discard
+                                                      (fix & reprocess)(drop bad data)
+```
+
+## Scalability Architecture
+
+```
+  Current (single-node, MVP):
+
+    Client ──► Express (10 conn pool) ──► MySQL
+
+  Production (horizontal scaling):
+
+                      ┌──────────────────┐
+   CDR Sources ──────►│  Message Queue    │──────► CDR Workers (N pods)
+   (Network Elements) │  (RabbitMQ /      │        ├── Validate
+                      │   Redis Streams / │        ├── DLQ on failure
+                      │   Kafka)          │        └── INSERT IGNORE
+                      └──────────────────┘
+                                                         │
+                                                         ▼
+                      ┌──────────────────┐         ┌──────────┐
+                      │  Billing Workers  │◄── cron │  MySQL   │
+                      │  (per-user jobs)  │         │ (Sharded │
+                      │                   │────────►│  by user)│
+                      │  Idempotent:      │         └──────────┘
+                      │  billed=FALSE     │
+                      │  flag ensures     │
+                      │  crash-safe retry │
+                      └──────────────────┘
+
+  Key scaling properties:
+  ┌────────────────────────────────────────────────────────────────┐
+  │ CDR Ingestion   : Stateless, horizontally scalable             │
+  │ Billing Runs    : Per-user, idempotent (billed flag)           │
+  │ Ledger          : Append-only, shardable by user_id            │
+  │ DLQ             : Decoupled from hot path, async processing    │
+  │ Rate Limiting   : Redis-backed for distributed rate limits     │
+  └────────────────────────────────────────────────────────────────┘
 ```
 
 ## Monetary Precision Strategy

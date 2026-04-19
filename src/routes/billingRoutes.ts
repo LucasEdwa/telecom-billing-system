@@ -1,7 +1,8 @@
 import express from 'express';
-import { generateBill, getBills, payBill, getBillDetails } from '../controllers/billingController';
+import { generateBill, getBills, payBill, getBillDetails, getLedger, getDLQ, resolveDLQ, discardDLQ } from '../controllers/billingController';
 import { authenticate } from '../middleware/auth';
 import { billingRateLimit } from '../middleware/security';
+import { requireRole as authorizeRole } from '../middleware/role';
 import {
   validateUserId,
   validateBillId,
@@ -164,5 +165,96 @@ router.get('/:billId',
   handleValidationErrors, 
   getBillDetails
 );
+
+// ─── Ledger (Audit Trail) ──────────────────────────────────────────────────
+
+/**
+ * @swagger
+ * /billing/ledger/{userId}:
+ *   get:
+ *     tags: [Billing]
+ *     summary: Get full financial ledger (audit trail) for a user
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Ledger entries with running balance
+ */
+router.get('/ledger/:userId',
+  validateUserId,
+  validatePagination,
+  handleValidationErrors,
+  getLedger
+);
+
+// ─── Dead Letter Queue (Admin only) ────────────────────────────────────────
+
+/**
+ * @swagger
+ * /billing/dlq:
+ *   get:
+ *     tags: [Admin]
+ *     summary: View pending Dead Letter Queue items
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of failed CDRs pending review
+ */
+router.get('/dlq', authorizeRole('ADMIN'), getDLQ);
+
+/**
+ * @swagger
+ * /billing/dlq/{dlqId}/resolve:
+ *   put:
+ *     tags: [Admin]
+ *     summary: Mark a DLQ item as resolved
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: dlqId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: DLQ item resolved
+ */
+router.put('/dlq/:dlqId/resolve', authorizeRole('ADMIN'), resolveDLQ);
+
+/**
+ * @swagger
+ * /billing/dlq/{dlqId}/discard:
+ *   put:
+ *     tags: [Admin]
+ *     summary: Discard a DLQ item (invalid data)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: dlqId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: DLQ item discarded
+ */
+router.put('/dlq/:dlqId/discard', authorizeRole('ADMIN'), discardDLQ);
 
 export default router;

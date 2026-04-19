@@ -7,6 +7,9 @@ A production-grade backend system for calculating and managing telecom bills bas
 - **Mediation Engine**: Ingests Call Detail Records (CDRs) with idempotency protection to prevent duplicate charges on retries
 - **Rating Engine**: Applies configurable per-service rates to aggregated usage using **Decimal.js** for financial precision (avoids IEEE 754 floating-point errors)
 - **Invoice Generation**: Automated bill calculation with period-based aggregation and state management (UNPAID → PAID)
+- **Audit Trail / Ledger**: Immutable append-only ledger traces every cent — every CHARGE, PAYMENT, ADJUSTMENT, and REFUND is permanently recorded with running balance
+- **Dead Letter Queue (DLQ)**: Malformed CDRs are persisted for admin review instead of being silently dropped — no revenue leakage
+- **Atomic Billing**: Bill creation, CDR marking, and ledger entry happen in a single database transaction — crash-safe
 - **Authentication & Security**: JWT auth, role-based access (admin/user), rate limiting, brute-force protection, Helmet security headers, input sanitization
 - **Stripe Integration**: Optional payment processing via Stripe Payment Intents
 - **API Documentation**: Auto-generated Swagger/OpenAPI docs at `/api-docs`
@@ -21,12 +24,18 @@ The system follows a **layered architecture** (Controller → Service → Databa
 
 ### Monetary Precision
 
-All monetary calculations use `Decimal.js` instead of native JavaScript `Number` to prevent rounding errors. In a billing system, `0.1 + 0.2` must equal `0.30`, not `0.30000000000000004`.
+All monetary calculations use `Decimal.js` with **Banker's Rounding** (`ROUND_HALF_EVEN`) — the financial industry standard. Standard rounding (0.5 always rounds up) introduces systematic bias that accumulates across millions of transactions. Banker's Rounding eliminates this bias by rounding 0.5 to the nearest even digit.
+
+```
+Standard:  2.5 → 3, 3.5 → 4, 4.5 → 5  (bias: always up)
+Banker's:  2.5 → 2, 3.5 → 4, 4.5 → 4  (no bias)
+```
 
 | Layer | Strategy |
 |-------|----------|
 | Database | `DECIMAL(10,2)` for amounts, `DECIMAL(12,4)` for quantities |
-| Service | `Decimal.js` with `ROUND_HALF_UP` |
+| Service | `Decimal.js` with `ROUND_HALF_EVEN` (Banker's Rounding) |
+| Ledger | `DECIMAL(10,4)` for running balance, `TIMESTAMP(3)` for ms precision |
 | API | Rounded to 2 decimal places before serialization |
 
 ### Idempotency
@@ -103,6 +112,10 @@ Navigate to `http://localhost:3000/api-docs` for the interactive Swagger UI.
 | `GET`  | `/billing/user/:userId` | JWT | List bills (paginated, filterable) |
 | `POST` | `/billing/pay` | JWT | Mark bill as paid |
 | `GET`  | `/billing/:billId` | JWT | Get bill details |
+| `GET`  | `/billing/ledger/:userId` | JWT | Audit trail — every charge/payment |
+| `GET`  | `/billing/dlq` | JWT + Admin | View failed CDRs (Dead Letter Queue) |
+| `PUT`  | `/billing/dlq/:id/resolve` | JWT + Admin | Mark DLQ item as resolved |
+| `PUT`  | `/billing/dlq/:id/discard` | JWT + Admin | Discard invalid DLQ item |
 | `PUT`  | `/rates/:service` | JWT + API Key | Update service rate (admin) |
 | `GET`  | `/rates/:service` | JWT + API Key | Get service rates (admin) |
 
@@ -130,8 +143,9 @@ npx jest --coverage   # Generate coverage report
 ```
 
 Test suites cover:
-- **BillingService**: Decimal precision, rate calculation, edge cases (zero usage, missing rates, large values), transaction rollback
-- **UsageController**: Idempotency dedup, input validation, error handling
+- **BillingService**: Decimal precision, Banker's Rounding edge cases, atomic CDR marking, ledger entry creation, running balance, transaction rollback, unbilled-only queries
+- **DeadLetterService**: CDR enqueue, graceful DLQ write failure, payload serialization, resolve/discard lifecycle
+- **UsageController**: Idempotency dedup, centralized CDR validation, DLQ integration, error handling
 - **BillingController**: Request/response flow, pagination
 
 ---
@@ -141,15 +155,16 @@ Test suites cover:
 ```
 src/
 ├── controllers/       # HTTP request handlers (thin layer)
-│   ├── billingController.ts
+│   ├── billingController.ts   # Billing + Ledger + DLQ endpoints
 │   ├── rateController.ts
 │   ├── stripeController.ts
-│   ├── usageController.ts
+│   ├── usageController.ts     # CDR ingestion with DLQ integration
 │   └── userController.ts
 ├── services/          # Business logic (billing engine)
-│   └── billingService.ts
+│   ├── billingService.ts      # Atomic billing, ledger, Banker's Rounding
+│   └── deadLetterService.ts   # Dead Letter Queue management
 ├── models/            # Database schema definitions
-│   └── User.ts
+│   └── User.ts                # All CREATE TABLE statements (users, logs, bills, ledger, DLQ)
 ├── routes/            # Express route definitions + Swagger docs
 ├── middleware/        # Auth, error handling, security, roles
 ├── database/          # Connection pool configuration
@@ -184,6 +199,83 @@ cd k8s && ./deploy.sh
 ```
 
 See [GOOGLE_CLOUD_DEPLOYMENT.md](GOOGLE_CLOUD_DEPLOYMENT.md) for GCP Cloud Run / GKE deployment guide.
+
+---
+
+## Handling Edge Cases
+
+This section documents how the system handles the tricky scenarios that separate a production billing system from a toy project.
+
+### Double-Billing Prevention (Atomic CDR Marking)
+
+When a bill is generated, the following happens **in a single database transaction**:
+1. `INSERT INTO bills` — create the bill record
+2. `UPDATE user_logs SET billed = TRUE, bill_id = ?` — mark all included CDRs
+3. `INSERT INTO ledger` — write immutable CHARGE entry with running balance
+
+If **any** step fails, **all** steps rollback. CDRs remain `billed = FALSE` and will be picked up by the next billing run. This eliminates the window where a crash could leave CDRs in an ambiguous state.
+
+### Cross-Month Calls
+
+A call that starts at 23:55 on Jan 31 and ends at 00:10 on Feb 1 is a real scenario in telecom. This system attributes the **entire CDR to the month in which it was recorded** (timestamp-based, not split-based). This matches the billing model used by most MVNOs and simplifies dispute resolution. The `billed = FALSE` flag ensures it gets billed exactly once regardless of timing.
+
+### Banker's Rounding (Eliminating Systematic Bias)
+
+Standard rounding (`ROUND_HALF_UP`) always rounds 0.5 upward, creating a systematic +bias that compounds across millions of transactions. This system uses **Banker's Rounding** (`ROUND_HALF_EVEN`):
+
+```
+Standard:  0.005 → 0.01, 0.015 → 0.02, 0.025 → 0.03  (always up)
+Banker's:  0.005 → 0.00, 0.015 → 0.02, 0.025 → 0.02  (rounds to even)
+```
+
+Over 10 values ending in 5, standard rounding produces $0.55 aggregate error. Banker's Rounding produces $0.50 — the mathematically unbiased result. This is the same rounding used by banks, the IRS, and IEEE 754.
+
+### Malformed CDR Handling (Dead Letter Queue)
+
+Raw telecom data is messy — network elements send corrupted records, duplicate timestamps, negative durations, and garbage payloads. Instead of silently dropping these, the system:
+
+1. **Validates** each CDR against strict rules (positive amount, valid userId, valid timestamp)
+2. **Persists** failures to a `dead_letter_queue` table with the raw payload, error message, and error code
+3. **Continues** processing — a single bad CDR never blocks the pipeline
+4. **Exposes** DLQ items via admin API for manual review/resolution
+
+The DLQ write itself is fault-tolerant: if the DLQ insert fails, the error is logged but the main request still returns the appropriate validation error.
+
+### Database Failures Mid-Process
+
+Every billing operation that touches multiple tables uses **explicit transactions** with proper ROLLBACK on error. Connection pooling with `connectionLimit: 10` prevents exhaustion. All connections are released in `finally` blocks — never leaked, even on exceptions.
+
+### Idempotent CDR Ingestion
+
+Every CDR accepts an optional `idempotencyKey`. The system uses `INSERT IGNORE` with a `UNIQUE` constraint — if the same key is submitted twice (e.g., network retry), the duplicate is silently ignored. No double-charging, no error.
+
+---
+
+## Scalability Architecture
+
+The current implementation is designed for vertical scaling (single-node, 10-connection pool). For horizontal scaling to millions of CDRs/day:
+
+```
+                    ┌──────────────┐
+ CDR Sources ──────►│ Message Queue ├──────► CDR Workers (N instances)
+ (Network Elements) │ (RabbitMQ /  │        │
+                    │  Redis Stream)│        ▼
+                    └──────────────┘    ┌─────────┐
+                                        │  MySQL   │
+                         ┌──────────────│ (Sharded)│
+                         │              └─────────┘
+                         ▼
+                    ┌──────────────┐
+                    │ Billing Jobs │◄── Scheduled (cron / K8s CronJob)
+                    │ (Batch mode) │
+                    └──────────────┘
+```
+
+**Key scaling points:**
+- **CDR ingestion** is stateless and horizontally scalable — add workers behind a message queue
+- **Billing runs** are per-user and idempotent (`billed = FALSE` flag) — can be parallelized across users
+- **Ledger** is append-only — no contention, natural for sharding by user_id
+- **DLQ** decouples error handling from the hot path — failed CDRs don't block throughput
 
 ---
 

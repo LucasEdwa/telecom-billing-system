@@ -32,7 +32,8 @@ describe('Billing Controller', () => {
         period: {
           start: new Date('2026-01-01'),
           end: new Date('2026-01-31')
-        }
+        },
+        logIds: [1, 2, 3]
       };
 
       mockBillingService.calculateBill.mockResolvedValue(mockCalculation);

@@ -1,9 +1,11 @@
 import { Request, Response } from 'express';
 import { BillingService } from '../services/billingService';
+import { DeadLetterService } from '../services/deadLetterService';
 import { asyncHandler } from '../middleware/errorHandler';
 import { ApiResponse } from '../types';
 
 const billingService = new BillingService();
+const dlqService = new DeadLetterService();
 
 export const generateBill = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.params.userId;
@@ -22,6 +24,7 @@ export const generateBill = asyncHandler(async (req: Request, res: Response) => 
 
   res.status(201).json(response);
 });
+
 export const getBills = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.params.userId;
   const page = parseInt(req.query.page as string) || 1;
@@ -46,6 +49,7 @@ export const getBills = asyncHandler(async (req: Request, res: Response) => {
 
   res.json(response);
 });
+
 export const payBill = asyncHandler(async (req: Request, res: Response) => {
   const { billId, paymentMethodId } = req.body;
 
@@ -66,6 +70,7 @@ export const payBill = asyncHandler(async (req: Request, res: Response) => {
 
   res.json(response);
 });
+
 export const getBillDetails = asyncHandler(async (req: Request, res: Response) => {
   const billId = req.params.billId;
 
@@ -85,5 +90,74 @@ export const getBillDetails = asyncHandler(async (req: Request, res: Response) =
   };
 
   res.json(response);
+});
+
+// ─── Ledger (Audit Trail) ──────────────────────────────────────────────────
+
+export const getLedger = asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.params.userId;
+  const page = parseInt(req.query.page as string) || 1;
+  const limit = parseInt(req.query.limit as string) || 50;
+
+  const result = await billingService.getLedger(userId, page, limit);
+
+  const response: ApiResponse = {
+    success: true,
+    data: {
+      entries: result.entries,
+      currentBalance: result.currentBalance,
+      pagination: {
+        page,
+        limit,
+        total: result.total,
+        totalPages: Math.ceil(result.total / limit)
+      }
+    }
+  };
+
+  res.json(response);
+});
+
+// ─── Dead Letter Queue (Admin) ─────────────────────────────────────────────
+
+export const getDLQ = asyncHandler(async (req: Request, res: Response) => {
+  const page = parseInt(req.query.page as string) || 1;
+  const limit = parseInt(req.query.limit as string) || 50;
+
+  const result = await dlqService.getPending(page, limit);
+
+  const response: ApiResponse = {
+    success: true,
+    data: {
+      items: result.items,
+      pagination: { page, limit, total: result.total }
+    }
+  };
+
+  res.json(response);
+});
+
+export const resolveDLQ = asyncHandler(async (req: Request, res: Response) => {
+  const dlqId = parseInt(req.params.dlqId);
+  const adminId = (req as any).user?.id;
+
+  const resolved = await dlqService.resolve(dlqId, adminId);
+
+  res.json({
+    success: resolved,
+    message: resolved ? 'DLQ item resolved' : 'DLQ item not found or already resolved'
+  });
+});
+
+export const discardDLQ = asyncHandler(async (req: Request, res: Response) => {
+  const dlqId = parseInt(req.params.dlqId);
+  const adminId = (req as any).user?.id;
+
+  const discarded = await dlqService.discard(dlqId, adminId);
+
+  res.json({
+    success: discarded,
+    message: discarded ? 'DLQ item discarded' : 'DLQ item not found or already handled'
+  });
 });
 

@@ -2,6 +2,32 @@ import { Request, Response } from 'express';
 import { pool } from '../database/connection';
 import { dbError, validationError } from '../errors/AppError';
 import { v4 as uuidv4 } from 'uuid';
+import { DeadLetterService } from '../services/deadLetterService';
+
+const dlq = new DeadLetterService();
+
+/**
+ * Validates CDR payload and sends malformed records to the Dead Letter Queue.
+ * Returns null if valid, or the validation error message if invalid.
+ */
+function validateCDR(
+  body: Record<string, any>,
+  requiredField: string,
+  sourceType: 'CALL' | 'SMS' | 'DATA'
+): string | null {
+  if (!body.userId) return 'userId is required';
+  if (typeof body.userId !== 'number' || !Number.isInteger(body.userId) || body.userId <= 0) {
+    return 'userId must be a positive integer';
+  }
+  if (!body[requiredField]) return `${requiredField} is required`;
+  if (typeof body[requiredField] !== 'number' || body[requiredField] <= 0) {
+    return `${requiredField} must be a positive number`;
+  }
+  if (body.timestamp && isNaN(Date.parse(body.timestamp))) {
+    return 'timestamp is not a valid date';  
+  }
+  return null;
+}
 
 /**
  * Inserts a usage log with idempotency protection.
@@ -28,13 +54,13 @@ async function insertUsageLog(
 
 export const logCall = async (req: Request, res: Response) => {
   try {
+    const error = validateCDR(req.body, 'duration', 'CALL');
+    if (error) {
+      await dlq.enqueue('CALL', req.body, error, 'VALIDATION_ERROR');
+      throw validationError(error, 'Log Call');
+    }
+
     const { userId, duration, timestamp, idempotencyKey } = req.body;
-    if (!userId || !duration) {
-      throw validationError('userId and duration are required', 'Log Call');
-    }
-    if (typeof duration !== 'number' || duration <= 0) {
-      throw validationError('duration must be a positive number', 'Log Call');
-    }
 
     const result = await insertUsageLog(
       userId,
@@ -52,19 +78,20 @@ export const logCall = async (req: Request, res: Response) => {
     res.status(201).json({ message: 'Call log saved', idempotencyKey: result.idempotencyKey });
   } catch (error: any) {
     if (error.name === 'AppError') throw error;
+    await dlq.enqueue('CALL', req.body, error.message, 'PROCESSING_ERROR');
     throw dbError(`Failed to log call: ${error.message}`, 'Log Call');
   }
 };
 
 export const logSMS = async (req: Request, res: Response) => {
   try {
+    const error = validateCDR(req.body, 'count', 'SMS');
+    if (error) {
+      await dlq.enqueue('SMS', req.body, error, 'VALIDATION_ERROR');
+      throw validationError(error, 'Log SMS');
+    }
+
     const { userId, count, timestamp, idempotencyKey } = req.body;
-    if (!userId || !count) {
-      throw validationError('userId and count are required', 'Log SMS');
-    }
-    if (typeof count !== 'number' || count <= 0) {
-      throw validationError('count must be a positive number', 'Log SMS');
-    }
 
     const result = await insertUsageLog(
       userId,
@@ -82,19 +109,20 @@ export const logSMS = async (req: Request, res: Response) => {
     res.status(201).json({ message: 'SMS log saved', idempotencyKey: result.idempotencyKey });
   } catch (error: any) {
     if (error.name === 'AppError') throw error;
+    await dlq.enqueue('SMS', req.body, error.message, 'PROCESSING_ERROR');
     throw dbError(`Failed to log SMS: ${error.message}`, 'Log SMS');
   }
 };
 
 export const logData = async (req: Request, res: Response) => {
   try {
+    const error = validateCDR(req.body, 'mb', 'DATA');
+    if (error) {
+      await dlq.enqueue('DATA', req.body, error, 'VALIDATION_ERROR');
+      throw validationError(error, 'Log Data');
+    }
+
     const { userId, mb, timestamp, idempotencyKey } = req.body;
-    if (!userId || !mb) {
-      throw validationError('userId and mb are required', 'Log Data');
-    }
-    if (typeof mb !== 'number' || mb <= 0) {
-      throw validationError('mb must be a positive number', 'Log Data');
-    }
 
     const result = await insertUsageLog(
       userId,
@@ -112,6 +140,7 @@ export const logData = async (req: Request, res: Response) => {
     res.status(201).json({ message: 'Data log saved', idempotencyKey: result.idempotencyKey });
   } catch (error: any) {
     if (error.name === 'AppError') throw error;
+    await dlq.enqueue('DATA', req.body, error.message, 'PROCESSING_ERROR');
     throw dbError(`Failed to log data usage: ${error.message}`, 'Log Data');
   }
 };

@@ -30,10 +30,13 @@ export class User {
         type ENUM('CALL', 'SMS', 'DATA'),
         quantity DECIMAL(12,4) NOT NULL,
         idempotency_key VARCHAR(64) DEFAULT NULL,
+        billed BOOLEAN DEFAULT FALSE,
+        bill_id INT DEFAULT NULL,
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uq_idempotency (idempotency_key),
         INDEX idx_user_id (user_id),
         INDEX idx_user_timestamp (user_id, timestamp),
+        INDEX idx_unbilled (user_id, billed, timestamp),
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       );
     `);
@@ -69,6 +72,47 @@ export class User {
         INDEX idx_email_time (email, created_at)
       );
     `);
-    console.log("User table and related tables created or already exist.");
+
+    // Audit Ledger: every financial event is an immutable, append-only row.
+    // This is the single source of truth for money movement.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ledger (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        bill_id INT DEFAULT NULL,
+        type ENUM('CHARGE', 'PAYMENT', 'ADJUSTMENT', 'REFUND') NOT NULL,
+        amount DECIMAL(10,4) NOT NULL,
+        balance_after DECIMAL(10,4) NOT NULL,
+        description VARCHAR(255) NOT NULL,
+        reference_id VARCHAR(64) DEFAULT NULL,
+        created_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3),
+        INDEX idx_user_ledger (user_id, created_at),
+        INDEX idx_bill_ledger (bill_id),
+        INDEX idx_reference (reference_id),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE SET NULL
+      );
+    `);
+
+    // Dead Letter Queue: malformed or failed CDRs land here for manual review
+    // instead of being silently dropped.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS dead_letter_queue (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        source_type ENUM('CALL', 'SMS', 'DATA', 'UNKNOWN') NOT NULL DEFAULT 'UNKNOWN',
+        raw_payload JSON NOT NULL,
+        error_message VARCHAR(500) NOT NULL,
+        error_code VARCHAR(50) DEFAULT NULL,
+        retry_count INT DEFAULT 0,
+        status ENUM('PENDING', 'RETRIED', 'RESOLVED', 'DISCARDED') DEFAULT 'PENDING',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        resolved_at TIMESTAMP NULL,
+        resolved_by INT DEFAULT NULL,
+        INDEX idx_dlq_status (status, created_at),
+        INDEX idx_dlq_source (source_type)
+      );
+    `);
+
+    console.log("All tables created or already exist.");
   }
 }
